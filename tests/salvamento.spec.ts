@@ -97,7 +97,56 @@ test('persiste pintura, borracha, undo e redo e reabre o desenho editável', asy
   await expectColors(reopened, [white, blue, '#222222'])
 })
 
+for (const [exit, label] of [['reload', 'recarga imediata'], ['close', 'fechamento imediato']] as const) {
+  test(`salva o gesto com ${label} da aba`, async ({ page }) => {
+    await create(page)
 
+    const popup = page.waitForEvent('popup')
+    await page.evaluate(() => { window.open('/') })
+    const editor = await popup
+    await expectProject(editor)
+    await editor.evaluate(exit => {
+      // React handles pointerup at the root, before it reaches window.
+      window.addEventListener('pointerup', () => {
+        if (exit === 'reload') location.reload()
+        else window.close()
+      }, { once: true })
+    }, exit)
+
+    // Keep a write transaction ahead of the editor's save until the old document exits.
+    await page.evaluate(() => new Promise<void>((resolve, reject) => {
+      const open = indexedDB.open('linha-a-bordo')
+      open.onerror = () => reject(open.error)
+      open.onsuccess = () => {
+        const db = open.result
+        const transaction = db.transaction('projects', 'readwrite')
+        const store = transaction.objectStore('projects')
+        let released = false
+        window.addEventListener('release-project-store', () => { released = true }, { once: true })
+        transaction.oncomplete = () => db.close()
+        transaction.onabort = () => { db.close(); reject(transaction.error) }
+        function keepOpen() {
+          if (!released) store.get(1).onsuccess = keepOpen
+        }
+        store.get(1).onsuccess = () => { keepOpen(); resolve() }
+      }
+    }))
+
+    const exited = editor.waitForEvent(exit === 'reload' ? 'load' : 'close')
+    await draw(editor, 2, 4)
+    await exited
+    await page.evaluate(() => window.dispatchEvent(new Event('release-project-store')))
+
+    const reopened = exit === 'reload' ? editor : await page.context().newPage()
+    if (exit === 'close') await reopened.goto('/')
+    await expectProject(reopened)
+    await expectColors(reopened, [empty, empty, '#222222', '#222222', '#222222'])
+    const cells = Array<string | null>(3600).fill(null)
+    cells.fill('#222222', 2, 5)
+    expect(await storedProjects(reopened)).toEqual([{ number: 1, name, cells }])
+    expect(await reopened.evaluate(() => localStorage.getItem('linha-a-bordo:pending:1'))).toBeNull()
+  })
+}
 
 test('preserva o primeiro bordado quando duas abas tentam criar ao mesmo tempo', async ({ page, context }) => {
   const second = await context.newPage()
