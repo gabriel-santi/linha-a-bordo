@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import './style.css'
 
@@ -23,6 +23,8 @@ const palette = [
 
 type Ink = typeof palette[number][1] | null
 type Point = { x: number, y: number }
+type Stroke = { ink: Ink, before: Map<number, Ink> }
+type Gesture = Stroke & { id: number, point: Point }
 
 function lineWidth(index: number) {
   return index % 10 === 0 ? 2 : 1
@@ -46,7 +48,7 @@ function paintCell(ctx: CanvasRenderingContext2D, col: number, row: number, ink:
 }
 
 // Visit cells in the order the segment crosses their vertical and horizontal boundaries.
-function paintSegment(ctx: CanvasRenderingContext2D, from: Point, to: Point, ink: Ink) {
+function visitSegment(from: Point, to: Point, visit: (col: number, row: number) => void) {
   let col = Math.floor(from.x)
   let row = Math.floor(from.y)
   const endCol = Math.floor(to.x)
@@ -56,13 +58,13 @@ function paintSegment(ctx: CanvasRenderingContext2D, from: Point, to: Point, ink
   const stepX = Math.sign(dx)
   const stepY = Math.sign(dy)
 
-  paintCell(ctx, col, row, ink)
+  visit(col, row)
   while (col !== endCol || row !== endRow) {
     const nextX = col === endCol ? Infinity : (col + (stepX > 0 ? 1 : 0) - from.x) / dx
     const nextY = row === endRow ? Infinity : (row + (stepY > 0 ? 1 : 0) - from.y) / dy
     if (nextX <= nextY) col += stepX
     if (nextY <= nextX) row += stepY
-    paintCell(ctx, col, row, ink)
+    visit(col, row)
   }
 }
 
@@ -74,9 +76,12 @@ function pointerPoint(event: PointerEvent<HTMLCanvasElement>) {
   }
 }
 
-function Grid({ ink }: { ink: Ink }) {
+function Grid({ ink, zoom }: { ink: Ink, zoom: number }) {
   const canvas = useRef<HTMLCanvasElement>(null)
-  const gesture = useRef<{ id: number, point: Point, ink: Ink } | null>(null)
+  const drawing = useRef<Ink[]>(Array(cells * cells).fill(null))
+  const gesture = useRef<Gesture | null>(null)
+  const undo = useRef<Stroke[]>([])
+  const redo = useRef<Stroke[]>([])
 
   useLayoutEffect(() => {
     const ctx = canvas.current!.getContext('2d')!
@@ -91,30 +96,82 @@ function Grid({ ink }: { ink: Ink }) {
     }
   }, [])
 
+  useEffect(() => {
+    function handleHistory(event: KeyboardEvent) {
+      if (!event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return
+
+      const key = event.key.toLowerCase()
+      if (key !== 'z' && key !== 'y') return
+
+      event.preventDefault()
+      if (gesture.current) return
+
+      const undoing = key === 'z'
+      const source = undoing ? undo.current : redo.current
+      const destination = undoing ? redo.current : undo.current
+      const stroke = source.pop()
+      if (!stroke) return
+
+      const ctx = canvas.current!.getContext('2d')!
+      for (const [index, before] of stroke.before) {
+        const color = undoing ? before : stroke.ink
+        drawing.current[index] = color
+        paintCell(ctx, index % cells, Math.floor(index / cells), color)
+      }
+      destination.push(stroke)
+    }
+
+    window.addEventListener('keydown', handleHistory)
+    return () => window.removeEventListener('keydown', handleHistory)
+  }, [])
+
+  function trace(ctx: CanvasRenderingContext2D, active: Gesture, point: Point) {
+    visitSegment(active.point, point, (col, row) => {
+      if (col < 0 || col >= cells || row < 0 || row >= cells) return
+
+      const index = row * cells + col
+      const before = drawing.current[index]
+      if (before === active.ink) return
+
+      // The first visit records the original color even if the pointer returns.
+      active.before.set(index, before)
+      drawing.current[index] = active.ink
+      paintCell(ctx, col, row, active.ink)
+    })
+    active.point = point
+  }
+
   function start(event: PointerEvent<HTMLCanvasElement>) {
     if (event.button !== 0 || gesture.current) return
 
     const point = pointerPoint(event)
     event.currentTarget.setPointerCapture(event.pointerId)
-    gesture.current = { id: event.pointerId, point, ink }
-    paintSegment(event.currentTarget.getContext('2d')!, point, point, ink)
+    const active = { id: event.pointerId, point, ink, before: new Map<number, Ink>() }
+    gesture.current = active
+    trace(event.currentTarget.getContext('2d')!, active, point)
   }
 
   function move(event: PointerEvent<HTMLCanvasElement>) {
     const active = gesture.current
     if (!active || active.id !== event.pointerId) return
 
-    const point = pointerPoint(event)
-    paintSegment(event.currentTarget.getContext('2d')!, active.point, point, active.ink)
-    active.point = point
+    trace(event.currentTarget.getContext('2d')!, active, pointerPoint(event))
   }
 
   function end(event: PointerEvent<HTMLCanvasElement>) {
-    if (gesture.current?.id === event.pointerId) gesture.current = null
+    const active = gesture.current
+    if (!active || active.id !== event.pointerId) return
+
+    gesture.current = null
+    if (active.before.size === 0) return
+
+    undo.current.push({ ink: active.ink, before: active.before })
+    redo.current.length = 0
   }
 
   return <canvas ref={canvas} width={size} height={size} role="img"
     aria-label="Grade de bordado de 60 por 60 pontos"
+    style={{ '--zoom': zoom } as CSSProperties}
     onPointerDown={start} onPointerMove={move}
     onPointerUp={event => { move(event); end(event) }}
     onPointerCancel={end} onLostPointerCapture={end} />
@@ -122,25 +179,63 @@ function Grid({ ink }: { ink: Ink }) {
 
 function Editor() {
   const [ink, setInk] = useState<Ink>(palette[0][1])
+  const [zoom, setZoom] = useState(1)
+  const viewport = useRef<HTMLDivElement>(null)
+  const zoomCenter = useRef<Point | null>(null)
+
+  function changeZoom(next: number) {
+    const area = viewport.current!
+    const canvas = area.querySelector('canvas')!
+    const view = area.getBoundingClientRect()
+    const grid = canvas.getBoundingClientRect()
+    zoomCenter.current = {
+      x: (view.left + area.clientWidth / 2 - grid.left) / grid.width,
+      y: (view.top + area.clientHeight / 2 - grid.top) / grid.height,
+    }
+    setZoom(next)
+  }
+
+  useLayoutEffect(() => {
+    const center = zoomCenter.current
+    if (!center) return
+
+    const area = viewport.current!
+    const grid = area.querySelector('canvas')!.getBoundingClientRect()
+    const view = area.getBoundingClientRect()
+    area.scrollLeft += grid.left + center.x * grid.width - (view.left + area.clientWidth / 2)
+    area.scrollTop += grid.top + center.y * grid.height - (view.top + area.clientHeight / 2)
+    zoomCenter.current = null
+  }, [zoom])
 
   return (
     <main className="editor">
-      <div className="palette" role="group" aria-label="Paleta de cores e borracha">
-        {palette.map(([name, color]) => (
-          <button key={color} type="button" className="swatch"
-            aria-label={name} aria-pressed={ink === color} title={name}
-            style={{ '--swatch': color } as CSSProperties}
-            onClick={() => setInk(color)} />
-        ))}
-        <button type="button" aria-pressed={ink === null} onClick={() => setInk(null)}>
-          Borracha
-        </button>
+      <div className="editor-tools">
+        <div className="palette" role="group" aria-label="Paleta de cores e borracha">
+          {palette.map(([name, color]) => (
+            <button key={color} type="button" className="swatch"
+              aria-label={name} aria-pressed={ink === color} title={name}
+              style={{ '--swatch': color } as CSSProperties}
+              onClick={() => setInk(color)} />
+          ))}
+          <button type="button" aria-pressed={ink === null} onClick={() => setInk(null)}>
+            Borracha
+          </button>
+        </div>
+        <div className="zoom" role="group" aria-label="Zoom da grade">
+          <button type="button" aria-label="Diminuir zoom" disabled={zoom === 1}
+            onClick={() => changeZoom(zoom - 1)}>−</button>
+          <output aria-label="Zoom atual">{zoom * 100}%</output>
+          <button type="button" aria-label="Aumentar zoom" disabled={zoom === 4}
+            onClick={() => changeZoom(zoom + 1)}>+</button>
+          <button type="button" disabled={zoom === 1} onClick={() => changeZoom(1)}>Ajustar à tela</button>
+        </div>
       </div>
-      <div className="grid-area"><Grid ink={ink} /></div>
+      <div className="grid-area" ref={viewport} role="region" tabIndex={0} aria-label="Área da grade">
+        <div className="grid-content"><Grid ink={ink} zoom={zoom} /></div>
+      </div>
     </main>
   )
 }
-
 
 function App() {
   const [draft, setDraft] = useState('')
