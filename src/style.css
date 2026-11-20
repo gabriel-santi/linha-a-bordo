@@ -27,15 +27,43 @@ header h1 {
 .editor, .start {
   min-height: calc(100dvh - 64px);
   display: grid;
-  place-items: center;
   padding: 20px;
+}
+.start { place-items: center; }
+.editor {
+  height: calc(100dvh - 64px);
+  min-height: 300px;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+}
+.palette {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.palette button { min-height: 36px; padding: 6px 12px; }
+.palette button[aria-pressed="true"] { box-shadow: 0 0 0 2px #f5f2e9, 0 0 0 4px #374e3c; }
+.palette .swatch {
+  width: 36px;
+  background: var(--swatch);
+  border: 1px solid #303a3180;
+}
+.grid-area {
+  display: grid;
+  place-items: center;
+  container-type: size;
 }
 canvas {
   display: block;
-  width: min(100%, calc(100dvh - 104px), 962px);
+  width: min(100cqw, 100cqh, 962px);
   height: auto;
   box-shadow: 0 4px 20px #303a3114;
+  touch-action: none;
+  cursor: crosshair;
 }
+
 form {
   width: min(100%, 400px);
   padding: 32px;
