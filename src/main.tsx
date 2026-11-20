@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { createRoot } from 'react-dom/client'
+import { latestProject, openProjects, saveProject, type Project } from './projects'
 import './style.css'
 
 const cells = 60
@@ -76,9 +77,14 @@ function pointerPoint(event: PointerEvent<HTMLCanvasElement>) {
   }
 }
 
-function Grid({ ink, zoom }: { ink: Ink, zoom: number }) {
+function Grid({ ink, zoom, project, onSave }: {
+  ink: Ink
+  zoom: number
+  project: Project<Ink>
+  onSave: (cells: Ink[]) => void
+}) {
   const canvas = useRef<HTMLCanvasElement>(null)
-  const drawing = useRef<Ink[]>(Array(cells * cells).fill(null))
+  const drawing = useRef<Ink[]>([])
   const gesture = useRef<Gesture | null>(null)
   const undo = useRef<Stroke[]>([])
   const redo = useRef<Stroke[]>([])
@@ -94,7 +100,11 @@ function Grid({ ink, zoom }: { ink: Ink, zoom: number }) {
       ctx.fillRect(offset, 0, width, size)
       ctx.fillRect(0, offset, size, width)
     }
-  }, [])
+    drawing.current = project.cells.slice()
+    drawing.current.forEach((ink, index) => {
+      if (ink !== null) paintCell(ctx, index % cells, Math.floor(index / cells), ink)
+    })
+  }, [project])
 
   useEffect(() => {
     function handleHistory(event: KeyboardEvent) {
@@ -119,11 +129,12 @@ function Grid({ ink, zoom }: { ink: Ink, zoom: number }) {
         paintCell(ctx, index % cells, Math.floor(index / cells), color)
       }
       destination.push(stroke)
+      onSave(drawing.current)
     }
 
     window.addEventListener('keydown', handleHistory)
     return () => window.removeEventListener('keydown', handleHistory)
-  }, [])
+  }, [onSave])
 
   function trace(ctx: CanvasRenderingContext2D, active: Gesture, point: Point) {
     visitSegment(active.point, point, (col, row) => {
@@ -167,6 +178,7 @@ function Grid({ ink, zoom }: { ink: Ink, zoom: number }) {
 
     undo.current.push({ ink: active.ink, before: active.before })
     redo.current.length = 0
+    onSave(drawing.current)
   }
 
   return <canvas ref={canvas} width={size} height={size} role="img"
@@ -177,7 +189,7 @@ function Grid({ ink, zoom }: { ink: Ink, zoom: number }) {
     onPointerCancel={end} onLostPointerCapture={end} />
 }
 
-function Editor() {
+function Editor({ project, onSave }: { project: Project<Ink>, onSave: (cells: Ink[]) => void }) {
   const [ink, setInk] = useState<Ink>(palette[0][1])
   const [zoom, setZoom] = useState(1)
   const viewport = useRef<HTMLDivElement>(null)
@@ -231,35 +243,69 @@ function Editor() {
         </div>
       </div>
       <div className="grid-area" ref={viewport} role="region" tabIndex={0} aria-label="Área da grade">
-        <div className="grid-content"><Grid ink={ink} zoom={zoom} /></div>
+        <div className="grid-content"><Grid ink={ink} zoom={zoom} project={project} onSave={onSave} /></div>
       </div>
     </main>
   )
 }
 
 function App() {
+  const [db, setDb] = useState<IDBDatabase>()
+  const [project, setProject] = useState<Project<Ink> | null>(null)
   const [draft, setDraft] = useState('')
-  const [name, setName] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    void openProjects().then(async database => {
+      setProject(await latestProject<Ink>(database))
+      setDb(database)
+    }).catch(() => setError('Não foi possível abrir os bordados salvos neste navegador.'))
+  }, [])
+
+  async function create() {
+    const name = draft.trim()
+    if (!db || !name || creating) return
+
+    setCreating(true)
+    setError('')
+    try {
+      setProject(await latestProject<Ink>(db, { name, cells: Array(cells * cells).fill(null) }))
+    } catch {
+      setError('Não foi possível criar o bordado.')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const save = useCallback((cells: Ink[]) => {
+    if (!db || !project) return
+
+    void saveProject(db, { ...project, cells }).then(
+      () => setError(''),
+      () => setError('Não foi possível salvar a última edição.'),
+    )
+  }, [db, project])
+
   return (
     <div className="app">
       <header><span className="brand">Linha a Bordo</span>
-        {name && <h1 title={name}>{name}</h1>}
+        {project && <><h1 title={project.name}>{project.name}</h1>
+          <span>Bordado nº {project.number}</span></>}
+        {error && <span role="alert">{error}</span>}
       </header>
-      {name ? (
-        <Editor />
-      ) : (
+      {project ? (
+        <Editor key={project.number} project={project} onSave={save} />
+      ) : db ? (
         <main className="start">
-          <form onSubmit={event => {
-            event.preventDefault()
-            if (draft.trim()) setName(draft.trim())
-          }}>
+          <form onSubmit={event => { event.preventDefault(); void create() }}>
             <h1>Novo bordado</h1>
             <label htmlFor="name">Nome do bordado</label>
             <input id="name" value={draft} onChange={event => setDraft(event.target.value)} required />
-            <button disabled={!draft.trim()}>Criar bordado</button>
+            <button disabled={creating || !draft.trim()}>Criar bordado</button>
           </form>
         </main>
-      )}
+      ) : !error && <main className="start" role="status">Abrindo bordado…</main>}
     </div>
   )
 }
