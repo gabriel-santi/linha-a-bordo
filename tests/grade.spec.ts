@@ -28,7 +28,7 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 1920, height: 108
       return [scan(width, 1, 5 * width), scan(height, width, 5)]
     })
     for (const runs of scans) {
-      expect(runs).toHaveLength(122) // 61 limites alternam com 60 interiores
+      expect(runs).toHaveLength(121) // 61 limites alternam com 60 interiores
       const [major, interior, fine] = runs
       expect(major.shade).toBeLessThan(fine.shade)
       expect(fine.shade).toBeLessThan(interior.shade)
