@@ -1,0 +1,52 @@
+:root {
+  font-family: "Source Sans 3", "Segoe UI", sans-serif;
+  color: #303a31;
+  background: #f5f2e9;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+.app { min-height: 100dvh; }
+header {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding: 0 4vw;
+  background: #faf8f1;
+  border-bottom: 1px solid #c9cbbf;
+}
+.brand, h1 { font-family: "Spectral", Georgia, serif; }
+.brand { color: #805034; font-size: 22px; white-space: nowrap; }
+header h1 {
+  margin: 0;
+  font-size: 24px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.editor, .start {
+  min-height: calc(100dvh - 64px);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+canvas {
+  display: block;
+  width: min(100%, calc(100dvh - 104px), 962px);
+  height: auto;
+  box-shadow: 0 4px 20px #303a3114;
+}
+form {
+  width: min(100%, 400px);
+  padding: 32px;
+  background: #fffcf6;
+  border: 1px solid #c9cbbf;
+  border-radius: 8px;
+}
+form h1 { margin: 0 0 24px; font-size: 36px; }
+label { display: block; font-weight: 600; }
+input, button { font: inherit; border-radius: 4px; padding: 10px 12px; }
+input { width: 100%; margin: 6px 0 20px; border: 1px solid #7d8379; }
+button { background: #374e3c; color: white; border: 0; cursor: pointer; }
+button:disabled { background: #69726a; cursor: default; }
+:focus-visible { outline: 3px solid #a15b30; outline-offset: 3px; }
