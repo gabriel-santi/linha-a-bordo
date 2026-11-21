@@ -329,7 +329,7 @@ test('L3 finaliza o traço quando a camada muda durante a captura', async ({ pag
   await expectPixels(page, [0, 0, blue], [1, 0, black])
 })
 
-test('L5 L8 remapeia três camadas, confirma corte oculto e exporta 4000 × 4000', async ({ page }, info) => {
+test('L5 remapeia três camadas e confirma corte de branco oculto a 0%', async ({ page }, info) => {
   await create(page, 'Pilha grande', 80, 70)
   await paint(page, 'Azul', [0, 0], [1, 0])
   await add(page)
@@ -346,13 +346,7 @@ test('L5 L8 remapeia três camadas, confirma corte oculto e exporta 4000 × 4000
     layer(a, cells(200, 200, [0, 0, blue], [1, 0, blue])),
     layer(b, cells(200, 200, [0, 0, red]), 50),
     layer(c, cells(200, 200, [0, 0, white], [2, 2, white]), 50))
-  await select(page, 1)
-  await button(page, 'Aumentar zoom').click()
-  const snapshot = await read(page)
-  await png(page, info, 'Pilha grande.png', 200, 200, [over(over(rgba(blue), red, 50), white, 50), rgba(blue)], '4000')
-  expect(await read(page)).toEqual(snapshot)
 
-  await select(page, 3)
   await opacity(page, 0)
   await visibility(page).uncheck()
   const beforeCrop = await read(page)
@@ -379,6 +373,26 @@ test('L5 L8 remapeia três camadas, confirma corte oculto e exporta 4000 × 4000
   await undo(page)
   await undo(page)
   expect(await read(page)).toEqual(beforeCrop)
+})
+
+test('L8 exporta três camadas a 4000 × 4000, preservando pilhas de dois bordados', async ({ page }, info) => {
+  await create(page, 'Pilha grande', 200, 200)
+  await paint(page, 'Azul', [0, 0], [1, 0])
+  await add(page)
+  await paint(page, 'Vermelho', [0, 0])
+  await opacity(page, 50)
+  await add(page)
+  await paint(page, 'Branco', [0, 0], [2, 2])
+  await opacity(page, 50)
+  await select(page, 1)
+  await button(page, 'Aumentar zoom').click()
+  const snapshot = await read(page)
+  await png(page, info, 'Pilha grande.png', 200, 200, [over(over(rgba(blue), red, 50), white, 50), rgba(blue)], '4000')
+  expect(await read(page)).toEqual(snapshot)
+  await select(page, 3)
+  await opacity(page, 0)
+  await visibility(page).uncheck()
+  const hidden = await read(page)
 
   await create(page, 'Outro', 3, 4, 2)
   await paint(page, 'Preto', [0, 0])
@@ -387,6 +401,7 @@ test('L5 L8 remapeia três camadas, confirma corte oculto e exporta 4000 × 4000
   await png(page, info, 'Outro.png', 3, 4, [rgba(white), rgba(white)])
   await button(page, 'Bordado 1: Pilha grande').click()
   await png(page, info, 'Pilha grande.png', 200, 200, [over(rgba(blue), red, 50), rgba(blue)])
+  expect(await read(page)).toEqual(hidden)
 })
 
 test('L7 recupera um journal legado retangular e preserva pilha diante de journal antigo', async ({ page }, info) => {
