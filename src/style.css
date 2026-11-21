@@ -69,7 +69,7 @@ header h1 {
 }
 .editor-tools { column-gap: 24px; }
 .zoom output { min-width: 42px; text-align: center; }
-.palette button, .zoom button { min-height: 36px; padding: 6px 12px; }
+.palette button, .zoom button, .resize-control { min-height: 36px; padding: 6px 12px; }
 .palette button[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--page), 0 0 0 4px var(--selected-ring); }
 .palette .swatch {
   width: 36px;
@@ -114,7 +114,7 @@ header h1 {
 }
 canvas {
   display: block;
-  width: calc(min(100cqw, 100cqh, 962px) * var(--zoom));
+  width: calc(min(100cqw, 100cqh * var(--canvas-ratio), var(--canvas-width)) * var(--zoom));
   height: auto;
   box-shadow: 0 4px 20px var(--shadow);
   touch-action: none;
@@ -132,6 +132,15 @@ form h1 { margin: 0 0 24px; font-size: 36px; }
 label { display: block; font-weight: 600; }
 input, button { font: inherit; border-radius: 4px; padding: 10px 12px; }
 input { width: 100%; margin: 6px 0 20px; border: 1px solid var(--field-border); background: var(--field); color: var(--text); }
+.dimension-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.dimension-fields input { margin-bottom: 0; }
+.dimension-fields input[aria-invalid="true"] { border-color: var(--brand); }
+.dimension-error { display: block; margin-top: 4px; color: var(--brand); }
 button { background: var(--primary); color: var(--primary-text); border: 0; cursor: pointer; }
 button:disabled { background: var(--disabled); color: var(--disabled-text); cursor: default; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }

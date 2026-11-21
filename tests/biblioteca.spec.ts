@@ -82,7 +82,7 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 1920, height: 108
     await expect(submit).toBeDisabled()
     await solidButton(page, 'Cancelar').click()
     expect(await readLibrary(page)).toEqual({
-      projects: [{ number: 1, name: names[0], cells: cells(black) }],
+      projects: [{ number: 1, name: names[0], width: 60, height: 60, cells: cells(black) }],
       selected: 1,
     })
     await create(page, names[1], 2)
@@ -111,7 +111,7 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 1920, height: 108
     await page.reload()
     await expectOpen(page, 1, names[0], [black, empty])
     expect(await readLibrary(page)).toEqual({
-      projects: names.map((name, i) => ({ number: i + 1, name, cells: i === 0 ? cells(black) : cells() })),
+      projects: names.map((name, i) => ({ number: i + 1, name, width: 60, height: 60, cells: i === 0 ? cells(black) : cells() })),
       selected: 1,
     })
     if (info.repeatEachIndex === 0) await page.screenshot({ path: info.outputPath(`biblioteca-${viewport.width}.png`) })
@@ -154,7 +154,7 @@ test('renomeia o bordado após pintar e preserva o desenho, o número e o histó
   await page.reload()
   await expectOpen(page, 2, 'Maré', [white, empty])
   expect(await readLibrary(page)).toEqual({
-    projects: [{ number: 1, name: names[0], cells: cells(black) }, { number: 2, name: 'Maré', cells: cells(white) }],
+    projects: [{ number: 1, name: names[0], width: 60, height: 60, cells: cells(black) }, { number: 2, name: 'Maré', width: 60, height: 60, cells: cells(white) }],
     selected: 2,
   })
 })
@@ -213,7 +213,7 @@ test('troca sob transação pendente e recupera as últimas edições nos bordad
   await blocker.evaluate(() => window.dispatchEvent(new Event('release-library')))
   await expectOpen(page, 1, names[0], [black, black, black, empty])
   expect(await readLibrary(page)).toEqual({
-    projects: [{ number: 1, name: names[0], cells: cells(black, black, black) }, { number: 2, name: names[1], cells: cells(white, blue) }],
+    projects: [{ number: 1, name: names[0], width: 60, height: 60, cells: cells(black, black, black) }, { number: 2, name: names[1], width: 60, height: 60, cells: cells(white, blue) }],
     selected: 1,
   })
   expect(await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('linha-a-bordo:pending')))).toEqual([])
@@ -241,7 +241,7 @@ test('reabre um número anterior ao fechar e relançar o navegador com o mesmo p
     await reopened.goto('/')
     await expectOpen(reopened, 1, names[0], [white, empty])
     expect(await readLibrary(reopened)).toEqual({
-      projects: [{ number: 1, name: names[0], cells: cells(white) }, { number: 2, name: names[1], cells: cells(null, black) }],
+      projects: [{ number: 1, name: names[0], width: 60, height: 60, cells: cells(white) }, { number: 2, name: names[1], width: 60, height: 60, cells: cells(null, black) }],
       selected: 1,
     })
   } finally {
@@ -270,7 +270,7 @@ test('migra o banco v1 e recupera o journal do PR #5 sem reiniciar a numeração
   await page.goto('/')
   await expectOpen(page, 7, 'Acervo', [white, empty, black, blue])
   await expect(buttons(page)).toHaveText(['7'])
-  expect(await readLibrary(page)).toEqual({ projects: [{ number: 7, name: 'Acervo', cells: pending }], selected: 7 })
+  expect(await readLibrary(page)).toEqual({ projects: [{ number: 7, name: 'Acervo', width: 60, height: 60, cells: pending }], selected: 7 })
   expect(await page.evaluate(() => localStorage.getItem('linha-a-bordo:pending:7'))).toBeNull()
 
   await solidButton(page, 'Novo bordado').click()
@@ -281,7 +281,7 @@ test('migra o banco v1 e recupera o journal do PR #5 sem reiniciar a numeração
   await page.reload()
   await expectOpen(page, 7, 'Acervo', [white, empty, black, blue])
   expect(await readLibrary(page)).toEqual({
-    projects: [{ number: 7, name: 'Acervo', cells: pending }, { number: 8, name: 'Outro', cells: cells() }],
+    projects: [{ number: 7, name: 'Acervo', width: 60, height: 60, cells: pending }, { number: 8, name: 'Outro', width: 60, height: 60, cells: cells() }],
     selected: 7,
   })
 })
