@@ -28,7 +28,7 @@ async function create(page: Page, name: string, number: number) {
 
 async function expectOpen(page: Page, number: number, name: string) {
   await expect(page.getByRole('banner').getByRole('heading')).toHaveText(name)
-  await expect(page.getByText('Bordado nº ' + number, { exact: true })).toBeVisible()
+  await expect(selected(page)).toHaveText(String(number))
   await expect(selected(page)).toHaveAccessibleName('Bordado ' + number + ': ' + name)
 }
 
@@ -125,7 +125,7 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 1920, height: 108
     if (info.repeatEachIndex === 0) {
       await page.screenshot({ path: info.outputPath('editor-' + viewport.width + '.png') })
     }
-    const image = await exportPng(page, info, 'grade-vazia', 'Bordado 1 - ' + projectName + '.png',
+    const image = await exportPng(page, info, 'grade-vazia', projectName + '.png',
       () => page.keyboard.press(viewport.width === 1280 ? 'Space' : 'Enter'))
     expectCenters(image, Array(3600).fill(null))
 
@@ -140,12 +140,13 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 1920, height: 108
 }
 
 test('exporta as células atuais, inclusive fora do zoom, e preserva a biblioteca e o histórico', async ({ page }, info) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/')
   await create(page, projectName, 1)
   const first = Array<string | null>(3600).fill(null)
   const second = Array<string | null>(3600).fill(null)
-  const download = (label: string, name = projectName, number = 1) =>
-    exportPng(page, info, label, 'Bordado ' + number + ' - ' + name + '.png', () => button(page, 'Baixar PNG').click())
+  const download = (label: string, name = projectName) =>
+    exportPng(page, info, label, name + '.png', () => button(page, 'Baixar PNG').click())
 
   for (const [index, [name, color]] of palette.entries()) {
     await button(page, name).click()
@@ -186,25 +187,26 @@ test('exporta as células atuais, inclusive fora do zoom, e preserva a bibliotec
   expectCenters(full, first)
   await page.reload()
   await expectOpen(page, 1, projectName)
-  for (let i = 0; i < 3; i++) await button(page, 'Aumentar zoom').click()
+  await expect(page.getByLabel('Zoom atual')).toHaveText('100%')
   const viewport = page.locator('.grid-area')
   const scrollPosition = () => viewport.evaluate(area => [area.scrollLeft, area.scrollTop])
-  await viewport.evaluate(area => area.scrollTo(0, 0))
-  const initialScroll = await scrollPosition()
-  await viewport.evaluate(area => area.scrollTo(area.scrollWidth, area.scrollHeight))
-  const zoomScroll = await scrollPosition()
-  expect(zoomScroll[0]).toBeGreaterThan(initialScroll[0])
-  expect(zoomScroll[1]).toBeGreaterThan(initialScroll[1])
-  await expect(editor).not.toBeInViewport({ ratio: 1 })
   const before = await readLibrary(page)
   const editorBitmap = await editor.evaluate(canvas => canvas.toDataURL())
-  const zoomed = await download('zoom-400')
-  expect(zoomed.hash).toEqual(full.hash)
-  await expectOpen(page, 1, projectName)
-  await expect(page.getByLabel('Zoom atual')).toHaveText('400%')
-  expect(await scrollPosition()).toEqual(zoomScroll)
-  expect(await editor.evaluate(canvas => canvas.toDataURL())).toBe(editorBitmap)
-  expect(await readLibrary(page)).toEqual(before)
+  for (const percent of [250, 400]) {
+    for (let step = 0; step < 3; step++) await button(page, 'Aumentar zoom').click()
+    await viewport.evaluate(area => area.scrollTo(0, 0))
+    await viewport.evaluate(area => area.scrollTo(area.scrollWidth, area.scrollHeight))
+    const zoomScroll = await scrollPosition()
+    expect(zoomScroll[0]).toBeGreaterThan(0)
+    expect(zoomScroll[1]).toBeGreaterThan(0)
+    await expect(editor).not.toBeInViewport({ ratio: 1 })
+    expect((await download('zoom-' + percent)).hash).toEqual(full.hash)
+    await expectOpen(page, 1, projectName)
+    await expect(page.getByLabel('Zoom atual')).toHaveText(percent + '%')
+    expect(await scrollPosition()).toEqual(zoomScroll)
+    expect(await editor.evaluate(canvas => canvas.toDataURL())).toBe(editorBitmap)
+    expect(await readLibrary(page)).toEqual(before)
+  }
   if (info.repeatEachIndex === 0) await page.screenshot({ path: info.outputPath('editor-zoom-400.png') })
 
   await draw(page, 59, 58)
@@ -219,7 +221,7 @@ test('exporta as células atuais, inclusive fora do zoom, e preserva a bibliotec
   await create(page, secondName, 2)
   await draw(page, 0, 14)
   second[14] = black
-  expectCenters(await download('segundo-bordado', secondName, 2), second)
+  expectCenters(await download('segundo-bordado', secondName), second)
   await button(page, 'Bordado 1: ' + projectName).click()
   await page.reload()
   await expectOpen(page, 1, projectName)
@@ -229,4 +231,29 @@ test('exporta as células atuais, inclusive fora do zoom, e preserva a bibliotec
     projects: [{ number: 1, name: projectName, cells: first }, { number: 2, name: secondName, cells: second }],
     selected: 1,
   })
+})
+
+test('atualiza o nome do PNG a cada renomeação e preserva a sanitização', async ({ page }) => {
+  await page.goto('/')
+  await create(page, projectName, 1)
+
+  async function expectFilename(filename: string) {
+    const [download] = await Promise.all([page.waitForEvent('download'), button(page, 'Baixar PNG').click()])
+    expect(download.suggestedFilename()).toBe(filename)
+    expect(await download.failure()).toBeNull()
+  }
+
+  await expectFilename(projectName + '.png')
+  for (const [name, filename] of [
+    [secondName, secondName + '.png'],
+    ['Mar <>:"/\\|?*', 'Mar _________.png'],
+    ['<>:"/\\|?*', '_________.png'],
+    ['a'.repeat(55), 'a'.repeat(54) + '.png'],
+  ]) {
+    await button(page, 'Renomear').click()
+    await page.getByLabel('Nome do bordado').fill(name)
+    await button(page, 'Salvar nome').click()
+    await expectOpen(page, 1, name)
+    await expectFilename(filename)
+  }
 })
