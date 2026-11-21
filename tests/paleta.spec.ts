@@ -4,6 +4,7 @@ const palette = {
   Preto: '#222222', Cinza: '#777777', Branco: '#ffffff', Marrom: '#774631',
   Bege: '#dcc29b', Vermelho: '#c82e37', Laranja: '#eb782b', Amarelo: '#f3d344',
   Verde: '#3b804a', Azul: '#3066bd', Roxo: '#773e9d', Rosa: '#df72a3',
+  'Verde-claro': '#90ce97', 'Azul-claro': '#8dbbfa',
 }
 const empty = '#fffcf6'
 const pitch = 16
@@ -35,19 +36,25 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole('button', { name: 'Criar bordado' }).click()
 })
 
-test('aplica as 12 cores fixas e distingue branco de vazio até apagar', async ({ page }) => {
+test('aplica as 14 cores fixas por teclado e distingue branco de vazio até apagar', async ({ page }) => {
   const canvas = page.locator('canvas')
   const tools = page.getByRole('group', { name: 'Paleta de cores e borracha' })
   const eraser = tools.getByRole('button', { name: 'Borracha' })
-  await expect(tools.getByRole('button')).toHaveCount(13)
+  await expect(tools.getByRole('button')).toHaveCount(15)
+  await expect(tools.getByRole('button', { name: 'Preto', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'Novo bordado' }).focus()
 
   for (const [col, [name, color]] of Object.entries(palette).entries()) {
     const swatch = tools.getByRole('button', { name, exact: true })
-    await swatch.click()
+    await page.keyboard.press('Tab')
+    await expect(swatch).toBeFocused()
+    await page.keyboard.press(col % 2 === 0 ? 'Space' : 'Enter')
     await expect(swatch).toHaveAttribute('aria-pressed', 'true')
+    await expect(swatch).toHaveCSS('box-shadow', /rgb\(243, 237, 246\)/)
     const { x, y } = await cellPosition(canvas, col, 0)
     await page.mouse.click(x, y)
     expect(await cellColor(canvas, col, 0)).toBe(color)
+    await swatch.focus()
   }
   expect(await cellColor(canvas, 2, 1)).toBe(empty)
   expect(await pixel(canvas, 2 * pitch + 1, 8)).toBe('#8e8a80')
@@ -68,7 +75,7 @@ test('pinta e apaga entre eventos espaçados e encerra os gestos ao soltar', asy
     await page.mouse.move(x, y)
   }
 
-  await page.getByRole('button', { name: 'Azul' }).click()
+  await page.getByRole('button', { name: 'Azul', exact: true }).click()
   await moveTo(6)
   await page.mouse.down()
   await moveTo(19)
