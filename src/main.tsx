@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { createRoot } from 'react-dom/client'
-import { latestProject, openProjects, saveProject, type Project } from './projects'
+import { createProject, loadLibrary, openProjects, renameProject, saveProject, selectProject, type Project } from './projects'
 import './style.css'
 
 const cells = 60
@@ -84,6 +84,7 @@ function Grid({ ink, zoom, project, onSave }: {
   onSave: (cells: Ink[]) => void
 }) {
   const canvas = useRef<HTMLCanvasElement>(null)
+  const initialCells = useRef(project.cells)
   const drawing = useRef<Ink[]>([])
   const gesture = useRef<Gesture | null>(null)
   const undo = useRef<Stroke[]>([])
@@ -100,14 +101,15 @@ function Grid({ ink, zoom, project, onSave }: {
       ctx.fillRect(offset, 0, width, size)
       ctx.fillRect(0, offset, size, width)
     }
-    drawing.current = project.cells.slice()
+    drawing.current = initialCells.current.slice()
     drawing.current.forEach((ink, index) => {
       if (ink !== null) paintCell(ctx, index % cells, Math.floor(index / cells), ink)
     })
-  }, [project])
+  }, [])
 
   useEffect(() => {
     function handleHistory(event: KeyboardEvent) {
+      if (event.target instanceof Element && event.target.closest('dialog')) return
       if (!event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return
 
       const key = event.key.toLowerCase()
@@ -189,7 +191,10 @@ function Grid({ ink, zoom, project, onSave }: {
     onPointerCancel={end} onLostPointerCapture={end} />
 }
 
-function Editor({ project, onSave }: { project: Project<Ink>, onSave: (cells: Ink[]) => void }) {
+function Editor({ project, onSave }: {
+  project: Project<Ink>
+  onSave: (cells: Ink[]) => void
+}) {
   const [ink, setInk] = useState<Ink>(palette[0][1])
   const [zoom, setZoom] = useState(1)
   const viewport = useRef<HTMLDivElement>(null)
@@ -249,63 +254,179 @@ function Editor({ project, onSave }: { project: Project<Ink>, onSave: (cells: In
   )
 }
 
+function ProjectForm({ mode, initialName = '', busy, onSubmit, onCancel }: {
+  mode: 'create' | 'rename'
+  initialName?: string
+  busy: boolean
+  onSubmit: (name: string) => void
+  onCancel?: () => void
+}) {
+  const [draft, setDraft] = useState(initialName)
+  const renaming = mode === 'rename'
+
+  return (
+    <form onSubmit={event => {
+      event.preventDefault()
+      const name = draft.trim()
+      if (name && !busy) onSubmit(name)
+    }}>
+      <h1 id="project-form-title">{renaming ? 'Renomear bordado' : 'Novo bordado'}</h1>
+      <label htmlFor="name">Nome do bordado</label>
+      <input id="name" value={draft} onChange={event => setDraft(event.target.value)}
+        required disabled={busy} autoFocus={!!onCancel} />
+      <div className="form-actions">
+        <button disabled={busy || !draft.trim()}>{renaming ? 'Salvar nome' : 'Criar bordado'}</button>
+        {onCancel && <button className="secondary" type="button" disabled={busy} onClick={onCancel}>Cancelar</button>}
+      </div>
+    </form>
+  )
+}
+
+function ProjectDialog({ mode, name, busy, error, onSubmit, onCancel }: {
+  mode: 'create' | 'rename'
+  name: string
+  busy: boolean
+  error: string
+  onSubmit: (name: string) => void
+  onCancel: () => void
+}) {
+  const dialog = useRef<HTMLDialogElement>(null)
+
+  useLayoutEffect(() => {
+    const element = dialog.current!
+    element.showModal()
+    return () => element.close()
+  }, [])
+
+  return (
+    <dialog ref={dialog} aria-labelledby="project-form-title" onCancel={event => {
+      event.preventDefault()
+      if (!busy) onCancel()
+    }}>
+      <ProjectForm mode={mode} initialName={mode === 'rename' ? name : ''}
+        busy={busy} onSubmit={onSubmit} onCancel={onCancel} />
+      {error && <p role="alert">{error}</p>}
+    </dialog>
+  )
+}
+
 function App() {
   const [db, setDb] = useState<IDBDatabase>()
-  const [project, setProject] = useState<Project<Ink> | null>(null)
-  const [draft, setDraft] = useState('')
-  const [creating, setCreating] = useState(false)
+  const [projects, setProjects] = useState<Project<Ink>[]>([])
+  const [selected, setSelected] = useState<number>()
+  const [dialog, setDialog] = useState<'create' | 'rename' | null>(null)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+
+  const project = projects.find(item => item.number === selected)
 
   useEffect(() => {
     void openProjects().then(async database => {
-      setProject(await latestProject<Ink>(database))
+      const library = await loadLibrary<Ink>(database)
+      setProjects(library.projects)
+      setSelected(library.selected)
       setDb(database)
     }).catch(() => setError('Não foi possível abrir os bordados salvos neste navegador.'))
   }, [])
 
-  async function create() {
-    const name = draft.trim()
-    if (!db || !name || creating) return
-
-    setCreating(true)
+  function openDialog(mode: 'create' | 'rename') {
     setError('')
+    setDialog(mode)
+  }
+
+  function closeDialog() {
+    setError('')
+    setDialog(null)
+  }
+
+  async function create(name: string) {
+    if (!db) return
+
+    setBusy(true)
+    setError('')
+    const draft = { name, cells: Array<Ink>(cells * cells).fill(null) }
     try {
-      setProject(await latestProject<Ink>(db, { name, cells: Array(cells * cells).fill(null) }))
+      if (project) {
+        const created = await createProject(db, draft)
+        setProjects(items => [...items, created])
+        setSelected(created.number)
+      } else {
+        const library = await loadLibrary(db, draft)
+        setProjects(library.projects)
+        setSelected(library.selected)
+      }
+      closeDialog()
     } catch {
       setError('Não foi possível criar o bordado.')
     } finally {
-      setCreating(false)
+      setBusy(false)
     }
   }
 
-  const save = useCallback((cells: Ink[]) => {
-    if (!db || !project) return
+  async function rename(name: string) {
+    if (!db || selected === undefined) return
 
-    void saveProject(db, { ...project, cells }).then(
-      () => setError(''),
-      () => setError('Não foi possível salvar a última edição.'),
-    )
-  }, [db, project])
+    setBusy(true)
+    setError('')
+    try {
+      await renameProject(db, selected, name)
+      setProjects(items => items.map(item => item.number === selected ? { ...item, name } : item))
+      closeDialog()
+    } catch {
+      setError('Não foi possível renomear o bordado.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function select(number: number) {
+    if (!db || number === selected) return
+
+    setError('')
+    setSelected(number)
+    void selectProject(db, number).catch(() => setError('Não foi possível salvar o bordado selecionado.'))
+  }
+
+  const save = useCallback((cells: Ink[]) => {
+    if (!db || selected === undefined) return
+
+    const copy = cells.slice()
+    setProjects(items => items.map(item => item.number === selected ? { ...item, cells: copy } : item))
+    setError('')
+    void saveProject(db, selected, copy).catch(() => setError('Não foi possível salvar a última edição.'))
+  }, [db, selected])
 
   return (
     <div className="app">
-      <header><span className="brand">Linha a Bordo</span>
-        {project && <><h1 title={project.name}>{project.name}</h1>
-          <span>Bordado nº {project.number}</span></>}
-        {error && <span role="alert">{error}</span>}
+      <header>
+        <span className="brand">Linha a Bordo</span>
+        {project && <>
+          <h1 title={project.name}>{project.name}</h1>
+          <span className="project-number">Bordado nº {project.number}</span>
+          <div className="project-actions">
+            <button className="secondary" type="button" onClick={() => openDialog('rename')}>Renomear</button>
+            <button type="button" onClick={() => openDialog('create')}>Novo bordado</button>
+          </div>
+        </>}
+        {error && !dialog && <span role="alert">{error}</span>}
       </header>
       {project ? (
-        <Editor key={project.number} project={project} onSave={save} />
+        <div className="workspace">
+          <Editor key={project.number} project={project} onSave={save} />
+          <nav className="project-bar" aria-label="Bordados locais">
+            {projects.map(item => (
+              <button key={item.number} type="button"
+                aria-label={`Bordado ${item.number}: ${item.name}`}
+                aria-current={item.number === selected ? 'true' : undefined}
+                onClick={() => select(item.number)}>{item.number}</button>
+            ))}
+          </nav>
+        </div>
       ) : db ? (
-        <main className="start">
-          <form onSubmit={event => { event.preventDefault(); void create() }}>
-            <h1>Novo bordado</h1>
-            <label htmlFor="name">Nome do bordado</label>
-            <input id="name" value={draft} onChange={event => setDraft(event.target.value)} required />
-            <button disabled={creating || !draft.trim()}>Criar bordado</button>
-          </form>
-        </main>
+        <main className="start"><ProjectForm mode="create" busy={busy} onSubmit={create} /></main>
       ) : !error && <main className="start" role="status">Abrindo bordado…</main>}
+      {dialog && project && <ProjectDialog mode={dialog} name={project.name} busy={busy}
+        error={error} onSubmit={dialog === 'rename' ? rename : create} onCancel={closeDialog} />}
     </div>
   )
 }
