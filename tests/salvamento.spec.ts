@@ -62,7 +62,7 @@ test('persiste pintura, borracha, undo e redo e reabre o desenho editável', asy
   await create(page)
   await page.getByRole('button', { name: 'Branco' }).click()
   await draw(page, 0)
-  await page.getByRole('button', { name: 'Azul' }).click()
+  await page.getByRole('button', { name: 'Azul', exact: true }).click()
   await draw(page, 1, 4)
   await page.reload()
   await expectColors(page, [white, blue, blue, blue, blue, empty])
@@ -74,7 +74,7 @@ test('persiste pintura, borracha, undo e redo e reabre o desenho editável', asy
   await page.reload()
   await expectColors(page, [white, blue, empty, empty, empty])
 
-  await page.getByRole('button', { name: 'Azul' }).click()
+  await page.getByRole('button', { name: 'Azul', exact: true }).click()
   await draw(page, 2, 4)
   await draw(page, 0)
   await page.keyboard.press('Control+z')

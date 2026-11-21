@@ -60,7 +60,7 @@ header h1 {
   grid-template-rows: auto minmax(0, 1fr);
   gap: 12px;
 }
-.editor-tools, .palette, .zoom {
+.editor-tools, .palette, .color-tools, .zoom {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -76,6 +76,29 @@ header h1 {
   background: var(--swatch);
   border: 1px solid var(--swatch-border);
 }
+.color-tools label, .eraser-size {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.color-tools input, .eraser-size select {
+  min-height: 36px;
+  margin: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--field-border);
+  border-radius: 4px;
+  background: var(--field);
+  color: var(--text);
+  font: inherit;
+}
+.color-tools input[type="color"] {
+  width: 40px;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+.hex-color input { width: 10ch; }
+.hex-color input[aria-invalid="true"] { border-color: var(--brand); }
+#hex-error { color: var(--brand); }
 .grid-area {
   overflow: auto;
   container-type: size;

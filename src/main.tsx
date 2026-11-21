@@ -22,12 +22,18 @@ const palette = [
   ['Azul', '#3066bd'],
   ['Roxo', '#773e9d'],
   ['Rosa', '#df72a3'],
+  ['Verde-claro', '#90ce97'],
+  ['Azul-claro', '#8dbbfa'],
 ] as const
 
-type Ink = typeof palette[number][1] | null
+const eraserSizes = [1, 3, 5, 9] as const
+const hexColor = /^#[0-9a-f]{6}$/i
+
+type Color = `#${string}`
+type Ink = Color | null
 type Point = { x: number, y: number }
 type Stroke = { ink: Ink, before: Map<number, Ink> }
-type Gesture = Stroke & { id: number, point: Point }
+type Gesture = Stroke & { id: number, point: Point, radius: number }
 
 function lineWidth(index: number) {
   return index % 10 === 0 ? 2 : 1
@@ -111,8 +117,9 @@ function pointerPoint(event: PointerEvent<HTMLCanvasElement>) {
   }
 }
 
-function Grid({ ink, zoom, project, onSave }: {
+function Grid({ ink, eraserSize, zoom, project, onSave }: {
   ink: Ink
+  eraserSize: number
   zoom: number
   project: Project<Ink>
   onSave: (cells: Ink[]) => void
@@ -143,7 +150,7 @@ function Grid({ ink, zoom, project, onSave }: {
 
   useEffect(() => {
     function handleHistory(event: KeyboardEvent) {
-      if (event.target instanceof Element && event.target.closest('dialog')) return
+      if (event.target instanceof Element && event.target.closest('dialog, #hex-color, #eraser-size')) return
       if (!event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return
 
       const key = event.key.toLowerCase()
@@ -176,14 +183,19 @@ function Grid({ ink, zoom, project, onSave }: {
     visitSegment(active.point, point, (col, row) => {
       if (col < 0 || col >= cells || row < 0 || row >= cells) return
 
-      const index = row * cells + col
-      const before = drawing.current[index]
-      if (before === active.ink) return
+      const { radius, ink } = active
+      for (let y = Math.max(0, row - radius); y <= Math.min(cells - 1, row + radius); y++) {
+        for (let x = Math.max(0, col - radius); x <= Math.min(cells - 1, col + radius); x++) {
+          const index = y * cells + x
+          const before = drawing.current[index]
+          if (before === ink) continue
 
-      // The first visit records the original color even if the pointer returns.
-      active.before.set(index, before)
-      drawing.current[index] = active.ink
-      paintCell(ctx, col, row, active.ink)
+          // Later visits find the gesture's ink and preserve the original color.
+          active.before.set(index, before)
+          drawing.current[index] = ink
+          paintCell(ctx, x, y, ink)
+        }
+      }
     })
     active.point = point
   }
@@ -193,7 +205,8 @@ function Grid({ ink, zoom, project, onSave }: {
 
     const point = pointerPoint(event)
     event.currentTarget.setPointerCapture(event.pointerId)
-    const active = { id: event.pointerId, point, ink, before: new Map<number, Ink>() }
+    const radius = ink === null ? (eraserSize - 1) / 2 : 0
+    const active = { id: event.pointerId, point, ink, radius, before: new Map<number, Ink>() }
     gesture.current = active
     trace(event.currentTarget.getContext('2d')!, active, point)
   }
@@ -229,10 +242,29 @@ function Editor({ project, onSave }: {
   project: Project<Ink>
   onSave: (cells: Ink[]) => void
 }) {
-  const [ink, setInk] = useState<Ink>(palette[0][1])
+  const [color, setColor] = useState<Color>(palette[0][1])
+  const [hex, setHex] = useState<string>(palette[0][1])
+  const [erasing, setErasing] = useState(false)
+  const [eraserSize, setEraserSize] = useState<number>(1)
   const [zoom, setZoom] = useState(1)
   const viewport = useRef<HTMLDivElement>(null)
   const zoomCenter = useRef<Point | null>(null)
+  const ink = erasing ? null : color
+  const invalidHex = !hexColor.test(hex)
+
+  function chooseColor(next: Color) {
+    setColor(next)
+    setHex(next)
+    setErasing(false)
+  }
+
+  function editHex(value: string) {
+    setHex(value)
+    if (!hexColor.test(value)) return
+
+    setColor(value.toLowerCase() as Color)
+    setErasing(false)
+  }
 
   function changeZoom(next: number) {
     const area = viewport.current!
@@ -266,12 +298,32 @@ function Editor({ project, onSave }: {
             <button key={color} type="button" className="swatch"
               aria-label={name} aria-pressed={ink === color} title={name}
               style={{ '--swatch': color } as CSSProperties}
-              onClick={() => setInk(color)} />
+              onClick={() => chooseColor(color)} />
           ))}
-          <button type="button" aria-pressed={ink === null} onClick={() => setInk(null)}>
+          <button type="button" aria-pressed={erasing} onClick={() => setErasing(true)}>
             Borracha
           </button>
         </div>
+        <div className="color-tools" role="group" aria-label="Cor personalizada">
+          <label className="color-picker">
+            <span>Cor</span>
+            <input type="color" value={color} onChange={event => chooseColor(event.target.value as Color)} />
+          </label>
+          <label className="hex-color">
+            <span>Hexadecimal</span>
+            <input id="hex-color" value={hex} spellCheck={false} autoComplete="off"
+              aria-invalid={invalidHex} aria-describedby={invalidHex ? 'hex-error' : undefined}
+              onChange={event => editHex(event.target.value)}
+              onBlur={() => { if (!invalidHex) setHex(color) }} />
+          </label>
+          {invalidHex && <span id="hex-error" role="status">Use o formato #RRGGBB.</span>}
+        </div>
+        <label className="eraser-size">
+          <span>Tamanho da borracha</span>
+          <select id="eraser-size" value={eraserSize} onChange={event => setEraserSize(Number(event.target.value))}>
+            {eraserSizes.map(size => <option key={size} value={size}>{size}×{size}</option>)}
+          </select>
+        </label>
         <div className="zoom" role="group" aria-label="Zoom da grade">
           <button type="button" aria-label="Diminuir zoom" disabled={zoom === 1}
             onClick={() => changeZoom(zoom - 0.5)}>−</button>
@@ -282,7 +334,7 @@ function Editor({ project, onSave }: {
         </div>
       </div>
       <div className="grid-area" ref={viewport} role="region" tabIndex={0} aria-label="Área da grade">
-        <div className="grid-content"><Grid ink={ink} zoom={zoom} project={project} onSave={onSave} /></div>
+        <div className="grid-content"><Grid ink={ink} eraserSize={eraserSize} zoom={zoom} project={project} onSave={onSave} /></div>
       </div>
     </main>
   )

@@ -6,6 +6,7 @@ const palette = [
   ['Marrom', '#774631'], ['Bege', '#dcc29b'], ['Vermelho', '#c82e37'],
   ['Laranja', '#eb782b'], ['Amarelo', '#f3d344'], ['Verde', '#3b804a'],
   ['Azul', '#3066bd'], ['Roxo', '#773e9d'], ['Rosa', '#df72a3'],
+  ['Verde-claro', '#90ce97'], ['Azul-claro', '#8dbbfa'],
 ] as const
 const white = '#ffffff'
 const blue = '#3066bd'
@@ -153,6 +154,7 @@ test('exporta as células atuais, inclusive fora do zoom, e preserva a bibliotec
     await draw(page, 0, index)
     first[index] = color
   }
+  await button(page, 'Rosa').click()
   await draw(page, 59, 59)
   first[3599] = pink
   await button(page, 'Azul').click()
@@ -162,25 +164,34 @@ test('exporta as células atuais, inclusive fora do zoom, e preserva a bibliotec
   first[59] = blue
   await draw(page, 2, 4, 8)
   first.fill(blue, 124, 129)
+  await page.getByLabel('Hexadecimal').fill('#AB139F')
+  await draw(page, 3, 7)
+  await draw(page, 8, 8)
+  first[187] = '#ab139f'
+  first[488] = '#ab139f'
   expectCenters(await download('pintura'), first)
 
   await button(page, 'Borracha').click()
   await draw(page, 2, 4)
   first[124] = null
   expectCenters(await download('borracha-clique'), first)
-  await draw(page, 2, 6, 8)
+  await page.getByLabel('Tamanho da borracha').selectOption('3')
+  await draw(page, 2, 7)
   first.fill(null, 126, 129)
+  first[187] = null
   expectCenters(await download('borracha-arraste'), first)
   await page.keyboard.press('Control+z')
   first.fill(blue, 126, 129)
+  first[187] = '#ab139f'
   expectCenters(await download('desfazer'), first)
   await page.keyboard.press('Control+y')
   first.fill(null, 126, 129)
+  first[187] = null
 
   const editor = page.locator('canvas')
   expect(await editor.evaluate(canvas => {
     const ctx = canvas.getContext('2d')!
-    return [40, 200].map(x => Array.from(ctx.getImageData(x, 8, 1, 1).data))
+    return [40, 232].map(x => Array.from(ctx.getImageData(x, 8, 1, 1).data))
   })).toEqual([[255, 255, 255, 255], [255, 252, 246, 255]])
 
   const full = await download('vista-integral')
@@ -219,9 +230,14 @@ test('exporta as células atuais, inclusive fora do zoom, e preserva a bibliotec
   expectCenters(edited, first)
 
   await create(page, secondName, 2)
+  await page.getByLabel('Cor', { exact: true }).fill('#2496df')
   await draw(page, 0, 14)
-  second[14] = black
-  expectCenters(await download('segundo-bordado', secondName), second)
+  second[14] = '#2496df'
+  const secondPng = await download('segundo-bordado', secondName)
+  expectCenters(secondPng, second)
+  for (let step = 0; step < 6; step++) await button(page, 'Aumentar zoom').click()
+  await viewport.evaluate(area => area.scrollTo(area.scrollWidth, area.scrollHeight))
+  expect((await download('segundo-bordado-400', secondName)).hash).toEqual(secondPng.hash)
   await button(page, 'Bordado 1: ' + projectName).click()
   await page.reload()
   await expectOpen(page, 1, projectName)

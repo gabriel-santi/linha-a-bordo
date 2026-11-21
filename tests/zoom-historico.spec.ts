@@ -88,7 +88,7 @@ test('navega pela grade ampliada, edita as bordas e volta à vista inteira', asy
   await page.mouse.wheel(-5000, -5000)
   await expect.poll(() => area.evaluate(element => [element.scrollLeft, element.scrollTop])).toEqual([0, 0])
   const first: Cell = [0, 0]
-  await page.getByRole('button', { name: 'Azul' }).click()
+  await page.getByRole('button', { name: 'Azul', exact: true }).click()
   await draw(page, canvas, [first])
   const firstNeighbors: Cell[] = [first, [1, 0], [0, 1]]
   expect(await colors(canvas, firstNeighbors)).toEqual([blue, empty, empty])
@@ -97,7 +97,7 @@ test('navega pela grade ampliada, edita as bordas e volta à vista inteira', asy
   expect(await colors(canvas, firstNeighbors)).toEqual([empty, empty, empty])
   await page.keyboard.press('Control+z')
   expect(await colors(canvas, firstNeighbors)).toEqual([blue, empty, empty])
-  await page.getByRole('button', { name: 'Azul' }).click()
+  await page.getByRole('button', { name: 'Azul', exact: true }).click()
   for (let step = 0; step < 3; step++) await zoomIn.click()
   await expect(current).toHaveText('400%')
 
@@ -138,7 +138,7 @@ test('desfaz e refaz cliques e arrastes de pintura com sobreposição', async ({
   await draw(page, canvas, [first])
   await page.getByRole('button', { name: 'Vermelho' }).click()
   await draw(page, canvas, [first, third, first])
-  await page.getByRole('button', { name: 'Azul' }).click()
+  await page.getByRole('button', { name: 'Azul', exact: true }).click()
   await draw(page, canvas, [second, fifth])
   const final = [red, blue, blue, blue, blue, empty]
   expect(await colors(canvas, row)).toEqual(final)
