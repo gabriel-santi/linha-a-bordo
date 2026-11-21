@@ -7,6 +7,8 @@ const cells = 60
 const pitch = 16
 const size = cells * pitch + 2
 const empty = '#fffcf6'
+const majorLine = '#535e4d'
+const fineLine = '#b5b8ab'
 const palette = [
   ['Preto', '#222222'],
   ['Cinza', '#777777'],
@@ -29,6 +31,38 @@ type Gesture = Stroke & { id: number, point: Point }
 
 function lineWidth(index: number) {
   return index % 10 === 0 ? 2 : 1
+}
+
+function downloadPng(project: Project<Ink>) {
+  const exportPitch = 20
+  const exportSize = cells * exportPitch
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = exportSize
+  const ctx = canvas.getContext('2d', { alpha: false })!
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, exportSize, exportSize)
+  project.cells.forEach((ink, index) => {
+    if (ink === null || ink === '#ffffff') return
+    ctx.fillStyle = ink
+    ctx.fillRect(index % cells * exportPitch, Math.floor(index / cells) * exportPitch, exportPitch, exportPitch)
+  })
+
+  // Draw the stronger lines over the thin ones, keeping the outer edges inside the image.
+  for (const width of [1, 2]) {
+    ctx.fillStyle = width === 2 ? majorLine : fineLine
+    for (let line = 0; line <= cells; line++) {
+      if (lineWidth(line) !== width) continue
+      const offset = Math.min(line * exportPitch, exportSize - width)
+      ctx.fillRect(offset, 0, width, exportSize)
+      ctx.fillRect(0, offset, exportSize, width)
+    }
+  }
+
+  const link = document.createElement('a')
+  const name = Array.from(project.name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')).slice(0, 54).join('').trim()
+  link.download = 'Bordado ' + project.number + ' - ' + name + '.png'
+  link.href = canvas.toDataURL('image/png')
+  link.click()
 }
 
 function paintCell(ctx: CanvasRenderingContext2D, col: number, row: number, ink: Ink) {
@@ -97,7 +131,7 @@ function Grid({ ink, zoom, project, onSave }: {
     for (let line = 0; line <= cells; line++) {
       const width = lineWidth(line)
       const offset = line * pitch
-      ctx.fillStyle = width === 2 ? '#535e4d' : '#b5b8ab'
+      ctx.fillStyle = width === 2 ? majorLine : fineLine
       ctx.fillRect(offset, 0, width, size)
       ctx.fillRect(0, offset, size, width)
     }
@@ -404,6 +438,7 @@ function App() {
           <h1 title={project.name}>{project.name}</h1>
           <span className="project-number">Bordado nº {project.number}</span>
           <div className="project-actions">
+            <button className="secondary" type="button" onClick={() => downloadPng(project)}>Baixar PNG</button>
             <button className="secondary" type="button" onClick={() => openDialog('rename')}>Renomear</button>
             <button type="button" onClick={() => openDialog('create')}>Novo bordado</button>
           </div>
