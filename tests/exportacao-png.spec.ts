@@ -244,7 +244,7 @@ test('exporta as células atuais, inclusive fora do zoom, e preserva a bibliotec
   await expect(page.getByLabel('Zoom atual')).toHaveText('100%')
   expect((await download('bordado-reaberto')).hash).toEqual(edited.hash)
   expect(await readLibrary(page)).toEqual({
-    projects: [{ number: 1, name: projectName, cells: first }, { number: 2, name: secondName, cells: second }],
+    projects: [{ number: 1, name: projectName, width: 60, height: 60, cells: first }, { number: 2, name: secondName, width: 60, height: 60, cells: second }],
     selected: 1,
   })
 })

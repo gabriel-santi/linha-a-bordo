@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createProject, loadLibrary, openProjects, renameProject, saveProject, selectProject, type Project } from './projects'
+import { defaultDimension, isDimension, maxDimension, type Dimensions, type GridData } from './geometry'
 import './style.css'
 
-const cells = 60
 const pitch = 16
-const size = cells * pitch + 2
 const empty = '#fffcf6'
 const majorLine = '#535e4d'
 const fineLine = '#b5b8ab'
@@ -34,35 +33,43 @@ type Ink = Color | null
 type Point = { x: number, y: number }
 type Stroke = { ink: Ink, before: Map<number, Ink> }
 type Gesture = Stroke & { id: number, point: Point, radius: number }
+type Resize = { before: GridData<Ink>, after: GridData<Ink> }
+type GridAction = Stroke | Resize
 
 function lineWidth(index: number) {
   return index % 10 === 0 ? 2 : 1
 }
 
+function drawGridLines(ctx: CanvasRenderingContext2D, { width, height }: Dimensions, step: number) {
+  const { width: pixelsWide, height: pixelsHigh } = ctx.canvas
+  // Draw strong lines last so they stay continuous across intersections.
+  for (const thickness of [1, 2]) {
+    ctx.fillStyle = thickness === 2 ? majorLine : fineLine
+    for (let column = 0; column <= width; column++) {
+      if ((column === width ? 2 : lineWidth(column)) !== thickness) continue
+      ctx.fillRect(Math.min(column * step, pixelsWide - thickness), 0, thickness, pixelsHigh)
+    }
+    for (let row = 0; row <= height; row++) {
+      if ((row === height ? 2 : lineWidth(row)) !== thickness) continue
+      ctx.fillRect(0, Math.min(row * step, pixelsHigh - thickness), pixelsWide, thickness)
+    }
+  }
+}
+
 function downloadPng(project: Project<Ink>) {
   const exportPitch = 20
-  const exportSize = cells * exportPitch
   const canvas = document.createElement('canvas')
-  canvas.width = canvas.height = exportSize
+  canvas.width = project.width * exportPitch
+  canvas.height = project.height * exportPitch
   const ctx = canvas.getContext('2d', { alpha: false })!
   ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, exportSize, exportSize)
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
   project.cells.forEach((ink, index) => {
     if (ink === null || ink === '#ffffff') return
     ctx.fillStyle = ink
-    ctx.fillRect(index % cells * exportPitch, Math.floor(index / cells) * exportPitch, exportPitch, exportPitch)
+    ctx.fillRect(index % project.width * exportPitch, Math.floor(index / project.width) * exportPitch, exportPitch, exportPitch)
   })
-
-  // Draw the stronger lines over the thin ones, keeping the outer edges inside the image.
-  for (const width of [1, 2]) {
-    ctx.fillStyle = width === 2 ? majorLine : fineLine
-    for (let line = 0; line <= cells; line++) {
-      if (lineWidth(line) !== width) continue
-      const offset = Math.min(line * exportPitch, exportSize - width)
-      ctx.fillRect(offset, 0, width, exportSize)
-      ctx.fillRect(0, offset, exportSize, width)
-    }
-  }
+  drawGridLines(ctx, project, exportPitch)
 
   const link = document.createElement('a')
   const name = Array.from(project.name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')).slice(0, 54).join('').trim()
@@ -72,8 +79,6 @@ function downloadPng(project: Project<Ink>) {
 }
 
 function paintCell(ctx: CanvasRenderingContext2D, col: number, row: number, ink: Ink) {
-  if (col < 0 || col >= cells || row < 0 || row >= cells) return
-
   const left = lineWidth(col)
   const top = lineWidth(row)
   const x = col * pitch + left
@@ -110,47 +115,71 @@ function visitSegment(from: Point, to: Point, visit: (col: number, row: number) 
 }
 
 function pointerPoint(event: PointerEvent<HTMLCanvasElement>) {
-  const { left, top, width, height } = event.currentTarget.getBoundingClientRect()
+  const canvas = event.currentTarget
+  const { left, top, width, height } = canvas.getBoundingClientRect()
   return {
-    x: (event.clientX - left) * size / (width * pitch),
-    y: (event.clientY - top) * size / (height * pitch),
+    x: (event.clientX - left) * canvas.width / (width * pitch),
+    y: (event.clientY - top) * canvas.height / (height * pitch),
   }
 }
 
-function Grid({ ink, eraserSize, zoom, project, onSave }: {
-  ink: Ink
-  eraserSize: number
-  zoom: number
+function newGrid({ width, height }: Dimensions): GridData<Ink> {
+  return { width, height, cells: Array<Ink>(width * height).fill(null) }
+}
+
+function copyGrid({ width, height, cells }: GridData<Ink>): GridData<Ink> {
+  return { width, height, cells: cells.slice() }
+}
+
+function resizeGrid(current: GridData<Ink>, dimensions: Dimensions) {
+  const next = newGrid(dimensions)
+  const width = Math.min(current.width, next.width)
+  const height = Math.min(current.height, next.height)
+  for (let row = 0; row < height; row++) {
+    const start = row * current.width
+    for (let column = 0; column < width; column++) {
+      next.cells[row * next.width + column] = current.cells[start + column]
+    }
+  }
+  return next
+}
+
+function Editor({ project, onSave }: {
   project: Project<Ink>
-  onSave: (cells: Ink[]) => void
+  onSave: (grid: GridData<Ink>) => void
 }) {
   const canvas = useRef<HTMLCanvasElement>(null)
-  const initialCells = useRef(project.cells)
-  const drawing = useRef<Ink[]>([])
+  const drawing = useRef<GridData<Ink> | null>(null)
+  drawing.current ??= copyGrid(project)
+  const redraw = useRef(true)
   const gesture = useRef<Gesture | null>(null)
-  const undo = useRef<Stroke[]>([])
-  const redo = useRef<Stroke[]>([])
+  const undo = useRef<GridAction[]>([])
+  const redo = useRef<GridAction[]>([])
+  const [resizing, setResizing] = useState(false)
 
   useLayoutEffect(() => {
+    if (!redraw.current) return
+    redraw.current = false
+    const grid = drawing.current!
     const ctx = canvas.current!.getContext('2d')!
     ctx.fillStyle = empty
-    ctx.fillRect(0, 0, size, size)
-    for (let line = 0; line <= cells; line++) {
-      const width = lineWidth(line)
-      const offset = line * pitch
-      ctx.fillStyle = width === 2 ? majorLine : fineLine
-      ctx.fillRect(offset, 0, width, size)
-      ctx.fillRect(0, offset, size, width)
-    }
-    drawing.current = initialCells.current.slice()
-    drawing.current.forEach((ink, index) => {
-      if (ink !== null) paintCell(ctx, index % cells, Math.floor(index / cells), ink)
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+    drawGridLines(ctx, grid, pitch)
+    grid.cells.forEach((ink, index) => {
+      if (ink !== null) paintCell(ctx, index % grid.width, Math.floor(index / grid.width), ink)
     })
-  }, [])
+  })
+
+  const applyGrid = useCallback((grid: GridData<Ink>) => {
+    drawing.current = copyGrid(grid)
+    redraw.current = true
+    onSave(grid)
+  }, [onSave])
 
   useEffect(() => {
     function handleHistory(event: KeyboardEvent) {
-      if (event.target instanceof Element && event.target.closest('dialog, #hex-color')) return
+      if (resizing || (event.target instanceof Element &&
+        event.target.closest('dialog, input, textarea, [contenteditable]'))) return
       if (!event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return
 
       const key = event.key.toLowerCase()
@@ -162,37 +191,55 @@ function Grid({ ink, eraserSize, zoom, project, onSave }: {
       const undoing = key === 'z'
       const source = undoing ? undo.current : redo.current
       const destination = undoing ? redo.current : undo.current
-      const stroke = source.pop()
-      if (!stroke) return
+      const action = source.pop()
+      if (!action) return
 
-      const ctx = canvas.current!.getContext('2d')!
-      for (const [index, before] of stroke.before) {
-        const color = undoing ? before : stroke.ink
-        drawing.current[index] = color
-        paintCell(ctx, index % cells, Math.floor(index / cells), color)
+      destination.push(action)
+      if ('after' in action) {
+        applyGrid(undoing ? action.before : action.after)
+        return
       }
-      destination.push(stroke)
-      onSave(drawing.current)
+
+      const grid = drawing.current!
+      const ctx = canvas.current!.getContext('2d')!
+      for (const [index, before] of action.before) {
+        const color = undoing ? before : action.ink
+        grid.cells[index] = color
+        if (!redraw.current) paintCell(ctx, index % grid.width, Math.floor(index / grid.width), color)
+      }
+      onSave(copyGrid(grid))
     }
 
     window.addEventListener('keydown', handleHistory)
     return () => window.removeEventListener('keydown', handleHistory)
-  }, [onSave])
+  }, [applyGrid, onSave, resizing])
+
+  function resize(dimensions: Dimensions) {
+    setResizing(false)
+    const grid = drawing.current!
+    if (grid.width === dimensions.width && grid.height === dimensions.height) return
+
+    const after = resizeGrid(grid, dimensions)
+    undo.current.push({ before: copyGrid(grid), after })
+    redo.current.length = 0
+    applyGrid(after)
+  }
 
   function trace(ctx: CanvasRenderingContext2D, active: Gesture, point: Point) {
+    const { width, height, cells } = drawing.current!
     visitSegment(active.point, point, (col, row) => {
-      if (col < 0 || col >= cells || row < 0 || row >= cells) return
+      if (col < 0 || col >= width || row < 0 || row >= height) return
 
       const { radius, ink } = active
-      for (let y = Math.max(0, row - radius); y <= Math.min(cells - 1, row + radius); y++) {
-        for (let x = Math.max(0, col - radius); x <= Math.min(cells - 1, col + radius); x++) {
-          const index = y * cells + x
-          const before = drawing.current[index]
+      for (let y = Math.max(0, row - radius); y <= Math.min(height - 1, row + radius); y++) {
+        for (let x = Math.max(0, col - radius); x <= Math.min(width - 1, col + radius); x++) {
+          const index = y * width + x
+          const before = cells[index]
           if (before === ink) continue
 
           // Later visits find the gesture's ink and preserve the original color.
           active.before.set(index, before)
-          drawing.current[index] = ink
+          cells[index] = ink
           paintCell(ctx, x, y, ink)
         }
       }
@@ -227,21 +274,9 @@ function Grid({ ink, eraserSize, zoom, project, onSave }: {
 
     undo.current.push({ ink: active.ink, before: active.before })
     redo.current.length = 0
-    onSave(drawing.current)
+    onSave(copyGrid(drawing.current!))
   }
 
-  return <canvas ref={canvas} width={size} height={size} role="img"
-    aria-label="Grade de bordado de 60 por 60 pontos"
-    style={{ '--zoom': zoom } as CSSProperties}
-    onPointerDown={start} onPointerMove={move}
-    onPointerUp={event => { move(event); end(event) }}
-    onPointerCancel={end} onLostPointerCapture={end} />
-}
-
-function Editor({ project, onSave }: {
-  project: Project<Ink>
-  onSave: (cells: Ink[]) => void
-}) {
   const [color, setColor] = useState<Color>(palette[0][1])
   const [hex, setHex] = useState<string>(palette[0][1])
   const [erasing, setErasing] = useState(false)
@@ -251,6 +286,8 @@ function Editor({ project, onSave }: {
   const zoomCenter = useRef<Point | null>(null)
   const ink = erasing ? null : color
   const invalidHex = !hexColor.test(hex)
+  const canvasWidth = project.width * pitch + 2
+  const canvasHeight = project.height * pitch + 2
 
   function chooseColor(next: Color) {
     setColor(next)
@@ -332,34 +369,149 @@ function Editor({ project, onSave }: {
             onClick={() => changeZoom(zoom + 0.5)}>+</button>
           <button type="button" disabled={zoom === 1} onClick={() => changeZoom(1)}>Ajustar à tela</button>
         </div>
+        <button type="button" className="secondary resize-control"
+          onClick={() => { if (!gesture.current) setResizing(true) }}>Redimensionar</button>
       </div>
       <div className="grid-area" ref={viewport} role="region" tabIndex={0} aria-label="Área da grade">
-        <div className="grid-content"><Grid ink={ink} eraserSize={eraserSize} zoom={zoom} project={project} onSave={onSave} /></div>
+        <div className="grid-content">
+          <canvas ref={canvas} width={canvasWidth} height={canvasHeight} role="img"
+            aria-label={`Grade de bordado de ${project.width} por ${project.height} pontos`}
+            style={{ '--zoom': zoom, '--canvas-width': canvasWidth + 'px',
+              '--canvas-ratio': canvasWidth / canvasHeight } as CSSProperties}
+            onPointerDown={start} onPointerMove={move}
+            onPointerUp={event => { move(event); end(event) }}
+            onPointerCancel={end} onLostPointerCapture={end} />
+        </div>
       </div>
+      {resizing && <ResizeDialog grid={drawing.current} onSubmit={resize} onCancel={() => setResizing(false)} />}
     </main>
   )
+}
+
+type DimensionDraft = Record<keyof Dimensions, string>
+
+function dimensionDraft({ width, height }: Dimensions = { width: defaultDimension, height: defaultDimension }): DimensionDraft {
+  return { width: String(width), height: String(height) }
+}
+
+function parseDimension(value: string) {
+  const number = Number(value)
+  return /^\d+$/.test(value) && isDimension(number) ? number : undefined
+}
+
+function parseDimensions(draft: DimensionDraft): Dimensions | undefined {
+  const width = parseDimension(draft.width)
+  const height = parseDimension(draft.height)
+  if (width !== undefined && height !== undefined) return { width, height }
+}
+
+function DimensionFields({ draft, onChange, disabled }: {
+  draft: DimensionDraft
+  onChange: (draft: DimensionDraft) => void
+  disabled?: boolean
+}) {
+  return <div className="dimension-fields">
+    {(['width', 'height'] as const).map(axis => {
+      const id = 'dimension-' + axis
+      const invalid = parseDimension(draft[axis]) === undefined
+      return <div key={axis}>
+        <label htmlFor={id}>{axis === 'width' ? 'Largura' : 'Altura'} (pontos)</label>
+        <input id={id} type="text" inputMode="numeric" value={draft[axis]} disabled={disabled}
+          aria-invalid={invalid} aria-describedby={invalid ? id + '-error' : undefined}
+          onChange={event => onChange({ ...draft, [axis]: event.target.value })} />
+        {invalid && <span className="dimension-error" id={id + '-error'} role="status">
+          Use um inteiro de 1 a {maxDimension}.
+        </span>}
+      </div>
+    })}
+  </div>
+}
+
+function Modal({ title, children, onCancel, description }: {
+  title: string
+  children: ReactNode
+  onCancel: () => void
+  description?: string
+}) {
+  const dialog = useRef<HTMLDialogElement>(null)
+
+  useLayoutEffect(() => {
+    const element = dialog.current!
+    element.showModal()
+    return () => element.close()
+  }, [])
+
+  return <dialog ref={dialog} aria-labelledby={title} aria-describedby={description} onCancel={event => {
+    event.preventDefault()
+    onCancel()
+  }}>{children}</dialog>
+}
+
+function ResizeDialog({ grid, onSubmit, onCancel }: {
+  grid: GridData<Ink>
+  onSubmit: (dimensions: Dimensions) => void
+  onCancel: () => void
+}) {
+  const [draft, setDraft] = useState(() => dimensionDraft(grid))
+  const [confirmation, setConfirmation] = useState<Dimensions>()
+
+  function requestResize() {
+    const next = parseDimensions(draft)
+    if (!next) return
+
+    const cutsPaint = (next.width < grid.width || next.height < grid.height) && grid.cells.some((ink, index) =>
+      ink !== null && (index % grid.width >= next.width || Math.floor(index / grid.width) >= next.height),
+    )
+    if (cutsPaint) setConfirmation(next)
+    else onSubmit(next)
+  }
+
+  return <Modal title="resize-title" onCancel={onCancel} description={confirmation ? 'crop-description' : undefined}>
+    {confirmation ? (
+      <form key="confirm" onSubmit={event => { event.preventDefault(); onSubmit(confirmation) }}>
+        <h1 id="resize-title">Confirmar corte</h1>
+        <p id="crop-description">O tamanho de {confirmation.width} por {confirmation.height} pontos corta pontos pintados do bordado.</p>
+        <div className="form-actions">
+          <button className="secondary" type="button" autoFocus onClick={onCancel}>Cancelar</button>
+          <button>Confirmar corte</button>
+        </div>
+      </form>
+    ) : (
+      <form key="dimensions" onSubmit={event => { event.preventDefault(); requestResize() }}>
+        <h1 id="resize-title">Redimensionar bordado</h1>
+        <DimensionFields draft={draft} onChange={setDraft} />
+        <div className="form-actions">
+          <button>Aplicar dimensões</button>
+          <button className="secondary" type="button" onClick={onCancel}>Cancelar</button>
+        </div>
+      </form>
+    )}
+  </Modal>
 }
 
 function ProjectForm({ mode, initialName = '', busy, onSubmit, onCancel }: {
   mode: 'create' | 'rename'
   initialName?: string
   busy: boolean
-  onSubmit: (name: string) => void
+  onSubmit: (name: string, dimensions: Dimensions) => void
   onCancel?: () => void
 }) {
   const [draft, setDraft] = useState(initialName)
+  const [dimensions, setDimensions] = useState(() => dimensionDraft())
   const renaming = mode === 'rename'
 
   return (
     <form onSubmit={event => {
       event.preventDefault()
       const name = draft.trim()
-      if (name && !busy) onSubmit(name)
+      const parsed = parseDimensions(dimensions)
+      if (name && !busy && parsed) onSubmit(name, parsed)
     }}>
       <h1 id="project-form-title">{renaming ? 'Renomear bordado' : 'Novo bordado'}</h1>
       <label htmlFor="name">Nome do bordado</label>
       <input id="name" value={draft} onChange={event => setDraft(event.target.value)}
         required disabled={busy} autoFocus={!!onCancel} />
+      {!renaming && <DimensionFields draft={dimensions} onChange={setDimensions} disabled={busy} />}
       <div className="form-actions">
         <button disabled={busy || !draft.trim()}>{renaming ? 'Salvar nome' : 'Criar bordado'}</button>
         {onCancel && <button className="secondary" type="button" disabled={busy} onClick={onCancel}>Cancelar</button>}
@@ -373,26 +525,15 @@ function ProjectDialog({ mode, name, busy, error, onSubmit, onCancel }: {
   name: string
   busy: boolean
   error: string
-  onSubmit: (name: string) => void
+  onSubmit: (name: string, dimensions: Dimensions) => void
   onCancel: () => void
 }) {
-  const dialog = useRef<HTMLDialogElement>(null)
-
-  useLayoutEffect(() => {
-    const element = dialog.current!
-    element.showModal()
-    return () => element.close()
-  }, [])
-
   return (
-    <dialog ref={dialog} aria-labelledby="project-form-title" onCancel={event => {
-      event.preventDefault()
-      if (!busy) onCancel()
-    }}>
+    <Modal title="project-form-title" onCancel={() => { if (!busy) onCancel() }}>
       <ProjectForm mode={mode} initialName={mode === 'rename' ? name : ''}
         busy={busy} onSubmit={onSubmit} onCancel={onCancel} />
       {error && <p role="alert">{error}</p>}
-    </dialog>
+    </Modal>
   )
 }
 
@@ -425,12 +566,12 @@ function App() {
     setDialog(null)
   }
 
-  async function create(name: string) {
+  async function create(name: string, dimensions: Dimensions) {
     if (!db) return
 
     setBusy(true)
     setError('')
-    const draft = { name, cells: Array<Ink>(cells * cells).fill(null) }
+    const draft = { name, ...newGrid(dimensions) }
     try {
       if (project) {
         const created = await createProject(db, draft)
@@ -473,13 +614,12 @@ function App() {
     void selectProject(db, number).catch(() => setError('Não foi possível salvar o bordado selecionado.'))
   }
 
-  const save = useCallback((cells: Ink[]) => {
+  const save = useCallback((grid: GridData<Ink>) => {
     if (!db || selected === undefined) return
 
-    const copy = cells.slice()
-    setProjects(items => items.map(item => item.number === selected ? { ...item, cells: copy } : item))
+    setProjects(items => items.map(item => item.number === selected ? { ...item, ...grid } : item))
     setError('')
-    void saveProject(db, selected, copy).catch(() => setError('Não foi possível salvar a última edição.'))
+    void saveProject(db, selected, grid).catch(() => setError('Não foi possível salvar a última edição.'))
   }, [db, selected])
 
   return (

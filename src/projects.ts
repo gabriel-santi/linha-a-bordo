@@ -1,8 +1,7 @@
-export type Project<Ink> = {
-  number: number
-  name: string
-  cells: Ink[]
-}
+import { defaultDimension, isDimension, type GridData } from './geometry'
+
+export type Project<Ink> = GridData<Ink> & { number: number, name: string }
+type StoredProject<Ink> = Omit<Project<Ink>, 'width' | 'height'> & Partial<Pick<Project<Ink>, 'width' | 'height'>>
 
 type NewProject<Ink> = Omit<Project<Ink>, 'number'>
 type Library<Ink> = { projects: Project<Ink>[], selected: number | undefined }
@@ -27,10 +26,10 @@ function recordSnapshot(key: string, value: object) {
     const revision = crypto.getRandomValues(new Uint32Array(2))
     const snapshot = JSON.stringify({ revision: Array.from(revision), ...value })
     localStorage.setItem(key, snapshot)
-    return snapshot
+    return { snapshot, previous: null }
   } catch {
-    // Clear an older snapshot only if the new IndexedDB write commits.
-    return previous
+    // If journaling is unavailable, still attempt the IndexedDB write.
+    return { snapshot: null, previous }
   }
 }
 
@@ -42,20 +41,30 @@ function clearSnapshot(key: string, snapshot: string) {
   }
 }
 
-function recoverCells<Ink>(project: Project<Ink>, store: IDBObjectStore, recovered: Map<string, string>) {
+function readProject<Ink>(stored: StoredProject<Ink>): Project<Ink> {
+  return { ...stored, width: stored.width ?? defaultDimension, height: stored.height ?? defaultDimension }
+}
+
+function recoverGrid<Ink>(project: Project<Ink>, store: IDBObjectStore, recovered: Map<string, string>) {
   const key = pendingKey(project.number)
   const snapshot = readSnapshot(key)
-  if (snapshot) {
-    try {
-      const { cells } = JSON.parse(snapshot)
-      if (Array.isArray(cells) && cells.length === project.cells.length) {
-        project.cells = cells
-        store.put(project)
-        recovered.set(key, snapshot)
-      }
-    } catch {
-      // Keep the stored cells if the snapshot is invalid.
-    }
+  if (!snapshot) return
+
+  try {
+    const saved = JSON.parse(snapshot)
+    const legacy = !('width' in saved) && !('height' in saved)
+    if (legacy && (project.width !== defaultDimension || project.height !== defaultDimension)) return
+
+    const { cells } = saved
+    const width = legacy ? defaultDimension : saved.width
+    const height = legacy ? defaultDimension : saved.height
+    if (!isDimension(width) || !isDimension(height) || !Array.isArray(cells) || cells.length !== width * height) return
+
+    Object.assign(project, { width, height, cells })
+    store.put(project)
+    recovered.set(key, snapshot)
+  } catch {
+    // Keep the stored grid if the snapshot is invalid.
   }
 }
 
@@ -89,8 +98,8 @@ export function loadLibrary<Ink>(db: IDBDatabase, first?: NewProject<Ink>): Prom
     const library: Library<Ink> = { projects: [], selected: undefined }
 
     savedProjects.onsuccess = () => {
-      library.projects = savedProjects.result
-      for (const project of library.projects) recoverCells(project, store, recovered)
+      library.projects = (savedProjects.result as StoredProject<Ink>[]).map(readProject)
+      for (const project of library.projects) recoverGrid(project, store, recovered)
 
       if (library.projects.length === 0 && first) {
         const insert = store.add(first)
@@ -146,12 +155,16 @@ export function createProject<Ink>(db: IDBDatabase, project: NewProject<Ink>): P
 
 export function selectProject(db: IDBDatabase, number: number): Promise<void> {
   return new Promise((resolve, reject) => {
-    const snapshot = recordSnapshot(pendingSelection, { number })
+    const { snapshot, previous } = recordSnapshot(pendingSelection, { number })
     const transaction = db.transaction(settingsStore, 'readwrite', { durability: 'strict' })
-    transaction.objectStore(settingsStore).put(number, selectedKey)
-    transaction.commit()
+    const store = transaction.objectStore(settingsStore)
+    store.get(selectedKey).onsuccess = () => {
+      if (!snapshot || readSnapshot(pendingSelection) === snapshot) store.put(number, selectedKey)
+      transaction.commit()
+    }
     transaction.oncomplete = () => {
-      if (snapshot) clearSnapshot(pendingSelection, snapshot)
+      const completed = snapshot ?? previous
+      if (completed) clearSnapshot(pendingSelection, completed)
       resolve()
     }
     transaction.onabort = () => reject(transaction.error)
@@ -159,14 +172,17 @@ export function selectProject(db: IDBDatabase, number: number): Promise<void> {
 }
 
 function updateProject<Ink>(
-  db: IDBDatabase, number: number, fields: Partial<NewProject<Ink>>,
+  db: IDBDatabase, number: number, fields: Partial<NewProject<Ink>>, snapshot?: { key: string, value: string },
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(projectsStore, 'readwrite', { durability: 'strict' })
     const store = transaction.objectStore(projectsStore)
     const request = store.get(number)
     request.onsuccess = () => {
-      store.put({ ...request.result, ...fields, number })
+      // Recovery or a newer edit may have superseded this write while the transaction waited.
+      if (!snapshot || readSnapshot(snapshot.key) === snapshot.value) {
+        store.put({ ...request.result, ...fields, number })
+      }
       transaction.commit()
     }
     transaction.oncomplete = () => resolve()
@@ -178,10 +194,11 @@ export function renameProject(db: IDBDatabase, number: number, name: string) {
   return updateProject(db, number, { name })
 }
 
-export async function saveProject<Ink>(db: IDBDatabase, number: number, cells: Ink[]) {
-  // Journal the captured cells synchronously, even if the write is queued.
+export async function saveProject<Ink>(db: IDBDatabase, number: number, grid: GridData<Ink>) {
+  // Journal the entire grid synchronously, even if the write is queued.
   const key = pendingKey(number)
-  const snapshot = recordSnapshot(key, { cells })
-  await updateProject(db, number, { cells })
-  if (snapshot) clearSnapshot(key, snapshot)
+  const { snapshot, previous } = recordSnapshot(key, grid)
+  await updateProject(db, number, grid, snapshot ? { key, value: snapshot } : undefined)
+  const completed = snapshot ?? previous
+  if (completed) clearSnapshot(key, completed)
 }
