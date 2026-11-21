@@ -393,6 +393,7 @@ test('D6 abre acervo v2 com journal antigo, redimensiona, edita, renomeia e reab
   await button(page, 'Renomear').click()
   await page.getByLabel('Nome do bordado').fill('Acervo revisto')
   await button(page, 'Salvar nome').click()
+  await expectProject(page, 7, 'Acervo revisto', [5, 3])
   const painted = [[2, 1, white], [2, 2, blue], [4, 2, red]] as const
   await page.reload()
   await expectProject(page, 7, 'Acervo revisto', [5, 3])
