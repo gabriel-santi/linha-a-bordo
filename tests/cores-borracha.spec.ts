@@ -121,6 +121,56 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 1920, height: 108
     expect(await pixels(page, [[113, 40]], false)).toEqual(['#8e8a80'])
     expect(errors).toEqual([])
   })
+
+  test('C4/C7 desfaz e refaz o apagamento com foco no tamanho em ' + viewport.width, async ({ page }, info) => {
+    await page.setViewportSize(viewport)
+    await create(page)
+    const sample: Cell[] = [[2, 2], [3, 2], [4, 2]]
+    const painted = [black, custom, empty]
+    const erased = [empty, empty, empty]
+
+    await draw(page, sample[0])
+    await hex(page).fill(custom)
+    await draw(page, sample[1])
+    expect(await pixels(page, sample)).toEqual(painted)
+
+    await button(page, 'Borracha').click()
+    await size(page).selectOption('3')
+    await draw(page, sample[0])
+    expect(await pixels(page, sample)).toEqual(erased)
+
+    await hex(page).focus()
+    await page.keyboard.press('Tab')
+    await expect(size(page)).toBeFocused()
+    await page.keyboard.press('Control+z')
+    expect(await pixels(page, sample)).toEqual(painted)
+    await expect(size(page)).toBeFocused()
+    await page.screenshot({ path: info.outputPath('desfazer-seletor.png') })
+
+    await page.keyboard.press('Shift+Tab')
+    await expect(hex(page)).toBeFocused()
+    for (const shortcut of ['Control+z', 'Control+y']) {
+      await page.keyboard.press(shortcut)
+      expect(await pixels(page, sample)).toEqual(painted)
+    }
+
+    await button(page, 'Renomear').click()
+    const name = page.getByRole('dialog').getByLabel('Nome do bordado')
+    await expect(name).toBeFocused()
+    for (const shortcut of ['Control+z', 'Control+y']) {
+      await page.keyboard.press(shortcut)
+      expect(await pixels(page, sample)).toEqual(painted)
+    }
+    await page.keyboard.press('Escape')
+
+    await hex(page).focus()
+    await page.keyboard.press('Tab')
+    await expect(size(page)).toBeFocused()
+    await page.keyboard.press('Control+y')
+    expect(await pixels(page, sample)).toEqual(erased)
+    await expect(size(page)).toBeFocused()
+    await page.screenshot({ path: info.outputPath('refazer-seletor.png') })
+  })
 }
 
 test('C3 recorta os quatro tamanhos no centro, na borda e no canto com zoom e rolagem', async ({ page }, info) => {

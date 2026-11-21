@@ -150,7 +150,7 @@ function Grid({ ink, eraserSize, zoom, project, onSave }: {
 
   useEffect(() => {
     function handleHistory(event: KeyboardEvent) {
-      if (event.target instanceof Element && event.target.closest('dialog, #hex-color, #eraser-size')) return
+      if (event.target instanceof Element && event.target.closest('dialog, #hex-color')) return
       if (!event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return
 
       const key = event.key.toLowerCase()
