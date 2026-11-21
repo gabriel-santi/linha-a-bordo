@@ -1,4 +1,5 @@
 import { chromium, expect, test, type Page, type TestInfo } from '@playwright/test'
+import { readLibrary, singleLayer } from './layer-data'
 
 type Dimensions = readonly [width: number, height: number]
 type Point = readonly [x: number, y: number]
@@ -87,21 +88,6 @@ async function expectPixels(page: Page, cells: Painted[]) {
   await expect.poll(() => pixels(page, cells.map(([x, y]) => [x, y]))).toEqual(cells.map(([, , ink]) => ink))
 }
 
-function readLibrary(page: Page) {
-  return page.evaluate(() => new Promise<{ projects: (Stored & { number: number, name: string })[], selected?: number }>((resolve, reject) => {
-    const open = indexedDB.open('linha-a-bordo')
-    open.onerror = () => reject(open.error)
-    open.onsuccess = () => {
-      const db = open.result
-      const tx = db.transaction(['projects', 'settings'])
-      const projects = tx.objectStore('projects').getAll()
-      const selected = tx.objectStore('settings').get('selected')
-      tx.oncomplete = () => { db.close(); resolve({ projects: projects.result, selected: selected.result }) }
-      tx.onabort = () => { db.close(); reject(tx.error) }
-    }
-  }))
-}
-
 function gridData([width, height]: Dimensions, painted: Painted[] = []): Stored {
   const cells = Array<string | null>(width * height).fill(null)
   for (const [x, y, ink] of painted) cells[y * width + x] = ink
@@ -109,7 +95,12 @@ function gridData([width, height]: Dimensions, painted: Painted[] = []): Stored 
 }
 
 function saved(number: number, name: string, size: Dimensions, painted: Painted[] = []) {
-  return { number, name, ...gridData(size, painted) }
+  return { number, name, ...layeredGrid(size, painted) }
+}
+
+function layeredGrid(size: Dimensions, painted: Painted[]) {
+  const { width, height, cells } = gridData(size, painted)
+  return { width, height, ...singleLayer(cells) }
 }
 
 function errorsOn(page: Page) {
@@ -321,7 +312,7 @@ for (const [width, height] of [[80, 70], [1, 200], [200, 1], [200, 200]] as cons
     await expectPixels(page, [...path, ...border])
     const { projects } = await readLibrary(page)
     const painted: Painted[] = []
-    projects[0].cells.forEach((ink, i) => {
+    projects[0].layers[0].cells.forEach((ink, i) => {
       if (ink === null) return
       const x = i % width
       const y = Math.floor(i / width)
@@ -456,7 +447,7 @@ test('D7 @D8 (a) altera apenas a largura, pinta e recarrega no fim do gesto com 
     const reloaded = page.waitForEvent('load')
     await draw(page, [7, 2])
     await reloaded
-    expect((await pendingLibrary(blocker))['pending:1']).toMatchObject(gridData([8, 4], [[4, 2, white], [7, 2, blue]]))
+    expect((await pendingLibrary(blocker))['pending:1']).toMatchObject(layeredGrid([8, 4], [[4, 2, white], [7, 2, blue]]))
   } finally {
     await releaseLibrary(blocker)
   }
@@ -548,8 +539,8 @@ test('D7 @D8 (c) recupera mudanças rápidas, geometrias de mesma área, pintura
     await expectPixels(page, [...second])
     await button(page, 'Bordado 1: Primeiro').click()
     const journal = await pendingLibrary(blocker)
-    expect(journal['pending:1']).toMatchObject(gridData([8, 5], [...first]))
-    expect(journal['pending:2']).toMatchObject(gridData([5, 10], [...second]))
+    expect(journal['pending:1']).toMatchObject(layeredGrid([8, 5], [...first]))
+    expect(journal['pending:2']).toMatchObject(layeredGrid([5, 10], [...second]))
     expect(journal['pending-selection']).toMatchObject({ number: 1 })
     await page.reload()
   } finally {

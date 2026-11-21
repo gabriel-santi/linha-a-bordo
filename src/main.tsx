@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode, type Ref } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createProject, loadLibrary, openProjects, renameProject, saveProject, selectProject, type Project } from './projects'
-import { defaultDimension, isDimension, maxDimension, type Dimensions, type GridData } from './geometry'
+import { defaultDimension, isDimension, maxDimension, type Dimensions } from './geometry'
+import { newDrawing, newLayer, resizeDrawing, type Drawing, type Layer } from './layers'
 import './style.css'
 
 const pitch = 16
@@ -31,10 +32,10 @@ const hexColor = /^#[0-9a-f]{6}$/i
 type Color = `#${string}`
 type Ink = Color | null
 type Point = { x: number, y: number }
-type Stroke = { ink: Ink, before: Map<number, Ink> }
-type Gesture = Stroke & { id: number, point: Point, radius: number }
-type Resize = { before: GridData<Ink>, after: GridData<Ink> }
-type GridAction = Stroke | Resize
+type Stroke = { layerId: string, ink: Ink, before: Map<number, Ink> }
+type Gesture = Stroke & { id: number, point: Point, radius: number, drawing: Drawing<Ink> }
+type DrawingChange = { before: Drawing<Ink>, after: Drawing<Ink> }
+type DrawingAction = Stroke | DrawingChange
 
 function lineWidth(index: number) {
   return index % 10 === 0 ? 2 : 1
@@ -62,13 +63,7 @@ function downloadPng(project: Project<Ink>) {
   canvas.width = project.width * exportPitch
   canvas.height = project.height * exportPitch
   const ctx = canvas.getContext('2d', { alpha: false })!
-  ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-  project.cells.forEach((ink, index) => {
-    if (ink === null || ink === '#ffffff') return
-    ctx.fillStyle = ink
-    ctx.fillRect(index % project.width * exportPitch, Math.floor(index / project.width) * exportPitch, exportPitch, exportPitch)
-  })
+  drawLayers(ctx, project, exportPitch, false)
   drawGridLines(ctx, project, exportPitch)
 
   const link = document.createElement('a')
@@ -78,19 +73,54 @@ function downloadPng(project: Project<Ink>) {
   link.click()
 }
 
-function paintCell(ctx: CanvasRenderingContext2D, col: number, row: number, ink: Ink) {
+function drawInk(ctx: CanvasRenderingContext2D, ink: Color, x: number, y: number, width: number, height: number, outlineWhite: boolean) {
+  ctx.fillStyle = ink
+  ctx.fillRect(x, y, width, height)
+  if (outlineWhite && ink === '#ffffff') {
+    ctx.fillStyle = '#8e8a80'
+    ctx.fillRect(x, y, width, 2)
+    ctx.fillRect(x, y + height - 2, width, 2)
+    ctx.fillRect(x, y + 2, 2, height - 4)
+    ctx.fillRect(x + width - 2, y + 2, 2, height - 4)
+  }
+}
+
+function drawLayers(ctx: CanvasRenderingContext2D, drawing: Drawing<Ink>, step: number, editor: boolean) {
+  ctx.fillStyle = editor ? empty : '#ffffff'
+  ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+  for (const { cells, visible, opacity } of drawing.layers) {
+    if (!visible || opacity === 0) continue
+
+    ctx.globalAlpha = opacity / 100
+    cells.forEach((ink, index) => {
+      if (ink === null) return
+      const col = index % drawing.width
+      const row = Math.floor(index / drawing.width)
+      const left = editor ? lineWidth(col) : 0
+      const top = editor ? lineWidth(row) : 0
+      drawInk(ctx, ink, col * step + left, row * step + top, step - left, step - top, editor && opacity === 100)
+    })
+  }
+  ctx.globalAlpha = 1
+}
+
+function repaintCell(ctx: CanvasRenderingContext2D, drawing: Drawing<Ink>, col: number, row: number) {
   const left = lineWidth(col)
   const top = lineWidth(row)
   const x = col * pitch + left
   const y = row * pitch + top
   const width = pitch - left
   const height = pitch - top
-  ctx.fillStyle = ink === '#ffffff' ? '#8e8a80' : ink ?? empty
+  const index = row * drawing.width + col
+  ctx.fillStyle = empty
   ctx.fillRect(x, y, width, height)
-  if (ink === '#ffffff') {
-    ctx.fillStyle = ink
-    ctx.fillRect(x + 2, y + 2, width - 4, height - 4)
+  for (const { cells, visible, opacity } of drawing.layers) {
+    const ink = cells[index]
+    if (ink === null || !visible || opacity === 0) continue
+    ctx.globalAlpha = opacity / 100
+    drawInk(ctx, ink, x, y, width, height, opacity === 100)
   }
+  ctx.globalAlpha = 1
 }
 
 // Visit cells in the order the segment crosses their vertical and horizontal boundaries.
@@ -123,63 +153,109 @@ function pointerPoint(event: PointerEvent<HTMLCanvasElement>) {
   }
 }
 
-function newGrid({ width, height }: Dimensions): GridData<Ink> {
-  return { width, height, cells: Array<Ink>(width * height).fill(null) }
-}
+type EditorHandle = { finishEdits: () => void, visibleDrawing: () => Drawing<Ink> }
 
-function copyGrid({ width, height, cells }: GridData<Ink>): GridData<Ink> {
-  return { width, height, cells: cells.slice() }
-}
-
-function resizeGrid(current: GridData<Ink>, dimensions: Dimensions) {
-  const next = newGrid(dimensions)
-  const width = Math.min(current.width, next.width)
-  const height = Math.min(current.height, next.height)
-  for (let row = 0; row < height; row++) {
-    const start = row * current.width
-    for (let column = 0; column < width; column++) {
-      next.cells[row * next.width + column] = current.cells[start + column]
-    }
-  }
-  return next
-}
-
-function Editor({ project, onSave }: {
+function Editor({ project, onSave, ref }: {
   project: Project<Ink>
-  onSave: (grid: GridData<Ink>) => void
+  onSave: (drawing: Drawing<Ink>) => void
+  ref: Ref<EditorHandle>
 }) {
   const canvas = useRef<HTMLCanvasElement>(null)
-  const drawing = useRef<GridData<Ink> | null>(null)
-  drawing.current ??= copyGrid(project)
-  const redraw = useRef(true)
+  const { width, height, layers, activeLayerId } = project
+  const drawing = useRef<Drawing<Ink>>({ width, height, layers, activeLayerId })
   const gesture = useRef<Gesture | null>(null)
-  const undo = useRef<GridAction[]>([])
-  const redo = useRef<GridAction[]>([])
+  const undo = useRef<DrawingAction[]>([])
+  const redo = useRef<DrawingAction[]>([])
   const [resizing, setResizing] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const opacityDrag = useRef<{ pointerId: number, value: number } | null>(null)
+  const [previewOpacity, setPreviewOpacity] = useState<number>()
+  const layerIndex = layers.findIndex(layer => layer.id === activeLayerId)
+  const activeLayer = layers[layerIndex]
+
+  function withLayer(current: Drawing<Ink>, layer: Layer<Ink>): Drawing<Ink> {
+    return { ...current, layers: current.layers.map(item => item.id === layer.id ? layer : item) }
+  }
+
+  const apply = useCallback((next: Drawing<Ink>) => {
+    drawing.current = next
+    onSave(next)
+  }, [onSave])
+
+  const commit = useCallback((after: Drawing<Ink>) => {
+    undo.current.push({ before: drawing.current, after })
+    redo.current.length = 0
+    apply(after)
+  }, [apply])
+
+  function visibleDrawing() {
+    const current = gesture.current?.drawing ?? drawing.current
+    if (previewOpacity === undefined) return current
+
+    const layer = current.layers.find(item => item.id === current.activeLayerId)!
+    return withLayer(current, { ...layer, opacity: previewOpacity })
+  }
 
   useLayoutEffect(() => {
-    if (!redraw.current) return
-    redraw.current = false
-    const grid = drawing.current!
+    const shown = visibleDrawing()
     const ctx = canvas.current!.getContext('2d')!
-    ctx.fillStyle = empty
-    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
-    drawGridLines(ctx, grid, pitch)
-    grid.cells.forEach((ink, index) => {
-      if (ink !== null) paintCell(ctx, index % grid.width, Math.floor(index / grid.width), ink)
-    })
-  })
+    drawLayers(ctx, shown, pitch, true)
+    drawGridLines(ctx, shown, pitch)
+  }, [width, height, layers, previewOpacity])
 
-  const applyGrid = useCallback((grid: GridData<Ink>) => {
-    drawing.current = copyGrid(grid)
-    redraw.current = true
-    onSave(grid)
-  }, [onSave])
+  const changeOpacity = useCallback((value: number) => {
+    const current = drawing.current
+    const layer = current.layers.find(item => item.id === current.activeLayerId)!
+    if (value !== layer.opacity) commit(withLayer(current, { ...layer, opacity: value }))
+  }, [commit])
+
+  const finishOpacity = useCallback((cancel = false) => {
+    const drag = opacityDrag.current
+    if (!drag) return
+
+    opacityDrag.current = null
+    setPreviewOpacity(undefined)
+    if (!cancel) changeOpacity(drag.value)
+  }, [changeOpacity])
+
+  useEffect(() => {
+    function finishPointer(event: globalThis.PointerEvent) {
+      if (event.pointerId === opacityDrag.current?.pointerId) finishOpacity(event.type === 'pointercancel')
+    }
+    window.addEventListener('pointerup', finishPointer)
+    window.addEventListener('pointercancel', finishPointer)
+    return () => {
+      window.removeEventListener('pointerup', finishPointer)
+      window.removeEventListener('pointercancel', finishPointer)
+    }
+  }, [finishOpacity])
+
+  const finishStroke = useCallback(() => {
+    const active = gesture.current
+    if (!active) return
+
+    gesture.current = null
+    if (canvas.current?.hasPointerCapture(active.id)) canvas.current.releasePointerCapture(active.id)
+    if (active.before.size === 0) return
+
+    undo.current.push({ layerId: active.layerId, ink: active.ink, before: active.before })
+    redo.current.length = 0
+    apply(active.drawing)
+  }, [apply])
+
+  function finishEdits() {
+    finishStroke()
+    finishOpacity()
+  }
+
+  useImperativeHandle(ref, () => ({ finishEdits, visibleDrawing }))
 
   useEffect(() => {
     function handleHistory(event: KeyboardEvent) {
-      if (resizing || (event.target instanceof Element &&
-        event.target.closest('dialog, input, textarea, [contenteditable]'))) return
+      if (resizing || deleting || (event.target instanceof HTMLElement && (
+        event.target.isContentEditable || event.target.closest('dialog, textarea') ||
+        (event.target instanceof HTMLInputElement && !['range', 'checkbox', 'radio'].includes(event.target.type))
+      ))) return
       if (!event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return
 
       const key = event.key.toLowerCase()
@@ -187,6 +263,7 @@ function Editor({ project, onSave }: {
 
       event.preventDefault()
       if (gesture.current) return
+      finishOpacity()
 
       const undoing = key === 'z'
       const source = undoing ? undo.current : redo.current
@@ -196,37 +273,82 @@ function Editor({ project, onSave }: {
 
       destination.push(action)
       if ('after' in action) {
-        applyGrid(undoing ? action.before : action.after)
+        apply(undoing ? action.before : action.after)
         return
       }
 
-      const grid = drawing.current!
-      const ctx = canvas.current!.getContext('2d')!
-      for (const [index, before] of action.before) {
-        const color = undoing ? before : action.ink
-        grid.cells[index] = color
-        if (!redraw.current) paintCell(ctx, index % grid.width, Math.floor(index / grid.width), color)
-      }
-      onSave(copyGrid(grid))
+      const current = drawing.current
+      const layer = current.layers.find(item => item.id === action.layerId)!
+      const cells = layer.cells.slice()
+      for (const [index, before] of action.before) cells[index] = undoing ? before : action.ink
+      apply(withLayer({ ...current, activeLayerId: layer.id }, { ...layer, cells }))
     }
 
     window.addEventListener('keydown', handleHistory)
     return () => window.removeEventListener('keydown', handleHistory)
-  }, [applyGrid, onSave, resizing])
+  }, [apply, deleting, finishOpacity, resizing])
 
   function resize(dimensions: Dimensions) {
     setResizing(false)
-    const grid = drawing.current!
-    if (grid.width === dimensions.width && grid.height === dimensions.height) return
+    const current = drawing.current
+    if (current.width === dimensions.width && current.height === dimensions.height) return
 
-    const after = resizeGrid(grid, dimensions)
-    undo.current.push({ before: copyGrid(grid), after })
-    redo.current.length = 0
-    applyGrid(after)
+    commit(resizeDrawing(current, dimensions, null))
+  }
+
+  function selectLayer(id: string) {
+    finishEdits()
+    const current = drawing.current
+    if (id !== current.activeLayerId) apply({ ...current, activeLayerId: id })
+  }
+
+  function addLayer() {
+    finishEdits()
+    const current = drawing.current
+    const layer = newLayer<Ink>(current, null)
+    commit({ ...current, layers: [...current.layers, layer], activeLayerId: layer.id })
+  }
+
+  function moveLayer(direction: number) {
+    finishEdits()
+    const current = drawing.current
+    const next = current.layers.slice()
+    const target = layerIndex + direction
+    if (target < 0 || target >= next.length) return
+
+    const layer = next[layerIndex]
+    next[layerIndex] = next[target]
+    next[target] = layer
+    commit({ ...current, layers: next })
+  }
+
+  function toggleVisibility() {
+    finishEdits()
+    const current = drawing.current
+    const layer = current.layers[layerIndex]
+    commit(withLayer(current, { ...layer, visible: !layer.visible }))
+  }
+
+  function deleteLayer() {
+    setDeleting(false)
+    const current = drawing.current
+    if (current.layers.length < 2) return
+
+    const next = current.layers.filter(layer => layer.id !== current.activeLayerId)
+    commit({ ...current, layers: next, activeLayerId: next[Math.min(layerIndex, next.length - 1)].id })
+  }
+
+  function requestDelete() {
+    finishEdits()
+    const current = drawing.current
+    if (current.layers.length < 2) return
+    if (current.layers[layerIndex].cells.some(ink => ink !== null)) setDeleting(true)
+    else deleteLayer()
   }
 
   function trace(ctx: CanvasRenderingContext2D, active: Gesture, point: Point) {
-    const { width, height, cells } = drawing.current!
+    const { width, height, layers } = active.drawing
+    const cells = layers.find(layer => layer.id === active.layerId)!.cells
     visitSegment(active.point, point, (col, row) => {
       if (col < 0 || col >= width || row < 0 || row >= height) return
 
@@ -237,10 +359,9 @@ function Editor({ project, onSave }: {
           const before = cells[index]
           if (before === ink) continue
 
-          // Later visits find the gesture's ink and preserve the original color.
           active.before.set(index, before)
           cells[index] = ink
-          paintCell(ctx, x, y, ink)
+          repaintCell(ctx, active.drawing, x, y)
         }
       }
     })
@@ -248,12 +369,18 @@ function Editor({ project, onSave }: {
   }
 
   function start(event: PointerEvent<HTMLCanvasElement>) {
-    if (event.button !== 0 || gesture.current) return
+    if (event.button !== 0 || gesture.current || !activeLayer.visible) return
+    finishOpacity()
 
+    const current = drawing.current
+    const layer = current.layers[layerIndex]
     const point = pointerPoint(event)
-    event.currentTarget.setPointerCapture(event.pointerId)
     const radius = ink === null ? (eraserSize - 1) / 2 : 0
-    const active = { id: event.pointerId, point, ink, radius, before: new Map<number, Ink>() }
+    const active = {
+      id: event.pointerId, layerId: layer.id, point, ink, radius, before: new Map<number, Ink>(),
+      drawing: withLayer(current, { ...layer, cells: layer.cells.slice() }),
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
     gesture.current = active
     trace(event.currentTarget.getContext('2d')!, active, point)
   }
@@ -261,20 +388,11 @@ function Editor({ project, onSave }: {
   function move(event: PointerEvent<HTMLCanvasElement>) {
     const active = gesture.current
     if (!active || active.id !== event.pointerId) return
-
     trace(event.currentTarget.getContext('2d')!, active, pointerPoint(event))
   }
 
   function end(event: PointerEvent<HTMLCanvasElement>) {
-    const active = gesture.current
-    if (!active || active.id !== event.pointerId) return
-
-    gesture.current = null
-    if (active.before.size === 0) return
-
-    undo.current.push({ ink: active.ink, before: active.before })
-    redo.current.length = 0
-    onSave(copyGrid(drawing.current!))
+    if (gesture.current?.id === event.pointerId) finishStroke()
   }
 
   const [color, setColor] = useState<Color>(palette[0][1])
@@ -370,20 +488,85 @@ function Editor({ project, onSave }: {
           <button type="button" disabled={zoom === 1} onClick={() => changeZoom(1)}>Ajustar à tela</button>
         </div>
         <button type="button" className="secondary resize-control"
-          onClick={() => { if (!gesture.current) setResizing(true) }}>Redimensionar</button>
+          onClick={() => { finishEdits(); setResizing(true) }}>Redimensionar</button>
       </div>
-      <div className="grid-area" ref={viewport} role="region" tabIndex={0} aria-label="Área da grade">
-        <div className="grid-content">
-          <canvas ref={canvas} width={canvasWidth} height={canvasHeight} role="img"
-            aria-label={`Grade de bordado de ${project.width} por ${project.height} pontos`}
-            style={{ '--zoom': zoom, '--canvas-width': canvasWidth + 'px',
-              '--canvas-ratio': canvasWidth / canvasHeight } as CSSProperties}
-            onPointerDown={start} onPointerMove={move}
-            onPointerUp={event => { move(event); end(event) }}
-            onPointerCancel={end} onLostPointerCapture={end} />
+      <div className="editor-workarea">
+        <div className="grid-area" ref={viewport} role="region" tabIndex={0} aria-label="Área da grade">
+          <div className="grid-content">
+            <canvas data-hidden-layer={!activeLayer.visible || undefined} ref={canvas} width={canvasWidth} height={canvasHeight} role="img"
+              aria-label={`Grade de bordado de ${project.width} por ${project.height} pontos`}
+              style={{ '--zoom': zoom, '--canvas-width': canvasWidth + 'px',
+                '--canvas-ratio': canvasWidth / canvasHeight } as CSSProperties}
+              onPointerDown={start} onPointerMove={move}
+              onPointerUp={event => { move(event); end(event) }}
+              onPointerCancel={end} onLostPointerCapture={end} />
+          </div>
         </div>
+        <section className="layer-panel" aria-labelledby="layers-title">
+          <div className="layer-header">
+            <h2 id="layers-title">Camadas</h2>
+            <button type="button" onClick={addLayer}>Nova camada</button>
+          </div>
+          <ol className="layer-list" reversed aria-label="Ordem das camadas, do topo à base">
+            {layers.map((layer, index) => ({ layer, index })).reverse().map(({ layer, index }) => (
+              <li key={layer.id}>
+                <button type="button" className="secondary" aria-pressed={layer.id === activeLayerId}
+                  onClick={() => selectLayer(layer.id)}>
+                  Camada {index + 1}
+                  <span aria-hidden="true">{layer.visible ? layer.opacity + '%' : 'Oculta'}</span>
+                </button>
+              </li>
+            ))}
+          </ol>
+          <div className="layer-controls" role="group" aria-label="Controles da camada ativa">
+            <label className="layer-visible">
+              <input type="checkbox" checked={activeLayer.visible} onChange={toggleVisibility} />
+              Visível
+            </label>
+            <div className="layer-opacity">
+              <label htmlFor="layer-opacity">Opacidade</label>
+              <output aria-hidden="true">{previewOpacity ?? activeLayer.opacity}%</output>
+              <input id="layer-opacity" type="range" min="0" max="100" value={previewOpacity ?? activeLayer.opacity}
+                onPointerDown={event => {
+                  if (event.button !== 0 || opacityDrag.current) return
+                  finishStroke()
+                  opacityDrag.current = { pointerId: event.pointerId, value: activeLayer.opacity }
+                }}
+                onChange={event => {
+                  const value = Number(event.target.value)
+                  if (opacityDrag.current) {
+                    opacityDrag.current.value = value
+                    setPreviewOpacity(value)
+                  } else {
+                    finishStroke()
+                    changeOpacity(value)
+                  }
+                }}
+                onBlur={() => finishOpacity()} />
+            </div>
+            <div className="layer-actions">
+              <button type="button" className="secondary" aria-label="Subir camada"
+                disabled={layerIndex === layers.length - 1} onClick={() => moveLayer(1)}>Subir</button>
+              <button type="button" className="secondary" aria-label="Descer camada"
+                disabled={layerIndex === 0} onClick={() => moveLayer(-1)}>Descer</button>
+              <button type="button" className="secondary" aria-label="Excluir camada"
+                disabled={layers.length === 1} onClick={requestDelete}>Excluir</button>
+            </div>
+          </div>
+          {!activeLayer.visible && <p className="layer-hint" role="status">Mostre a camada para editar.</p>}
+        </section>
       </div>
       {resizing && <ResizeDialog grid={drawing.current} onSubmit={resize} onCancel={() => setResizing(false)} />}
+      {deleting && <Modal title="delete-layer-title" description="delete-layer-description" onCancel={() => setDeleting(false)}>
+        <form onSubmit={event => { event.preventDefault(); deleteLayer() }}>
+          <h1 id="delete-layer-title">Excluir camada?</h1>
+          <p id="delete-layer-description">A camada {layerIndex + 1} contém pontos pintados.</p>
+          <div className="form-actions">
+            <button type="button" className="secondary" autoFocus onClick={() => setDeleting(false)}>Cancelar</button>
+            <button>Confirmar exclusão</button>
+          </div>
+        </form>
+      </Modal>}
     </main>
   )
 }
@@ -448,7 +631,7 @@ function Modal({ title, children, onCancel, description }: {
 }
 
 function ResizeDialog({ grid, onSubmit, onCancel }: {
-  grid: GridData<Ink>
+  grid: Drawing<Ink>
   onSubmit: (dimensions: Dimensions) => void
   onCancel: () => void
 }) {
@@ -459,9 +642,9 @@ function ResizeDialog({ grid, onSubmit, onCancel }: {
     const next = parseDimensions(draft)
     if (!next) return
 
-    const cutsPaint = (next.width < grid.width || next.height < grid.height) && grid.cells.some((ink, index) =>
+    const cutsPaint = (next.width < grid.width || next.height < grid.height) && grid.layers.some(layer => layer.cells.some((ink, index) =>
       ink !== null && (index % grid.width >= next.width || Math.floor(index / grid.width) >= next.height),
-    )
+    ))
     if (cutsPaint) setConfirmation(next)
     else onSubmit(next)
   }
@@ -545,6 +728,7 @@ function App() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
+  const editor = useRef<EditorHandle>(null)
   const project = projects.find(item => item.number === selected)
 
   useEffect(() => {
@@ -557,6 +741,7 @@ function App() {
   }, [])
 
   function openDialog(mode: 'create' | 'rename') {
+    editor.current?.finishEdits()
     setError('')
     setDialog(mode)
   }
@@ -571,7 +756,7 @@ function App() {
 
     setBusy(true)
     setError('')
-    const draft = { name, ...newGrid(dimensions) }
+    const draft = { name, ...newDrawing<Ink>(dimensions, null) }
     try {
       if (project) {
         const created = await createProject(db, draft)
@@ -608,13 +793,14 @@ function App() {
 
   function select(number: number) {
     if (!db || number === selected) return
+    editor.current?.finishEdits()
 
     setError('')
     setSelected(number)
     void selectProject(db, number).catch(() => setError('Não foi possível salvar o bordado selecionado.'))
   }
 
-  const save = useCallback((grid: GridData<Ink>) => {
+  const save = useCallback((grid: Drawing<Ink>) => {
     if (!db || selected === undefined) return
 
     setProjects(items => items.map(item => item.number === selected ? { ...item, ...grid } : item))
@@ -629,7 +815,7 @@ function App() {
         {project && <>
           <h1 title={project.name}>{project.name}</h1>
           <div className="project-actions">
-            <button className="secondary" type="button" onClick={() => downloadPng(project)}>Baixar PNG</button>
+            <button className="secondary" type="button" onClick={() => downloadPng({ ...project, ...editor.current?.visibleDrawing() })}>Baixar PNG</button>
             <button className="secondary" type="button" onClick={() => openDialog('rename')}>Renomear</button>
             <button type="button" onClick={() => openDialog('create')}>Novo bordado</button>
           </div>
@@ -638,7 +824,7 @@ function App() {
       </header>
       {project ? (
         <div className="workspace">
-          <Editor key={project.number} project={project} onSave={save} />
+          <Editor ref={editor} key={project.number} project={project} onSave={save} />
           <nav className="project-bar" aria-label="Bordados locais">
             {projects.map(item => (
               <button key={item.number} type="button"

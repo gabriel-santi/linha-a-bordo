@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
+import { readLibrary, singleLayer } from './layer-data'
 
 const palette = [
   ['Preto', '#222222'], ['Cinza', '#777777'], ['Branco', '#ffffff'],
@@ -84,21 +85,6 @@ function expectCenters(image: Awaited<ReturnType<typeof exportPng>>, cells: (str
   expect([image.width, image.height]).toEqual([1200, 1200])
   expect(image.opaque).toBe(true)
   expect(image.centers).toEqual(cells.map(ink => Number.parseInt((ink ?? white).slice(1), 16)))
-}
-
-function readLibrary(page: Page) {
-  return page.evaluate(() => new Promise((resolve, reject) => {
-    const open = indexedDB.open('linha-a-bordo')
-    open.onerror = () => reject(open.error)
-    open.onsuccess = () => {
-      const db = open.result
-      const tx = db.transaction(['projects', 'settings'])
-      const projects = tx.objectStore('projects').getAll()
-      const selected = tx.objectStore('settings').get('selected')
-      tx.oncomplete = () => { db.close(); resolve({ projects: projects.result, selected: selected.result }) }
-      tx.onabort = () => { db.close(); reject(tx.error) }
-    }
-  }))
 }
 
 for (const viewport of [{ width: 1280, height: 720 }, { width: 1920, height: 1080 }]) {
@@ -244,7 +230,7 @@ test('exporta as células atuais, inclusive fora do zoom, e preserva a bibliotec
   await expect(page.getByLabel('Zoom atual')).toHaveText('100%')
   expect((await download('bordado-reaberto')).hash).toEqual(edited.hash)
   expect(await readLibrary(page)).toEqual({
-    projects: [{ number: 1, name: projectName, width: 60, height: 60, cells: first }, { number: 2, name: secondName, width: 60, height: 60, cells: second }],
+    projects: [{ number: 1, name: projectName, width: 60, height: 60, ...singleLayer(first) }, { number: 2, name: secondName, width: 60, height: 60, ...singleLayer(second) }],
     selected: 1,
   })
 })

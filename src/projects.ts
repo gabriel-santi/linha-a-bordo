@@ -1,7 +1,9 @@
-import { defaultDimension, isDimension, type GridData } from './geometry'
+import { defaultDimension, isDimension, type Dimensions } from './geometry'
+import type { Drawing } from './layers'
 
-export type Project<Ink> = GridData<Ink> & { number: number, name: string }
-type StoredProject<Ink> = Omit<Project<Ink>, 'width' | 'height'> & Partial<Pick<Project<Ink>, 'width' | 'height'>>
+export type Project<Ink> = Drawing<Ink> & { number: number, name: string }
+type LegacyProject<Ink> = Pick<Project<Ink>, 'number' | 'name'> & Partial<Dimensions> & { cells: Ink[] }
+type StoredProject<Ink> = Project<Ink> | LegacyProject<Ink>
 
 type NewProject<Ink> = Omit<Project<Ink>, 'number'>
 type Library<Ink> = { projects: Project<Ink>[], selected: number | undefined }
@@ -42,30 +44,56 @@ function clearSnapshot(key: string, snapshot: string) {
 }
 
 function readProject<Ink>(stored: StoredProject<Ink>): Project<Ink> {
-  return { ...stored, width: stored.width ?? defaultDimension, height: stored.height ?? defaultDimension }
+  if ('layers' in stored) return stored
+  const { number, name, cells, width = defaultDimension, height = defaultDimension } = stored
+  const id = 'legacy-' + number
+  return { number, name, width, height, activeLayerId: id, layers: [{ id, visible: true, opacity: 100, cells }] }
 }
 
-function recoverGrid<Ink>(project: Project<Ink>, store: IDBObjectStore, recovered: Map<string, string>) {
+function isDrawing<Ink>(value: Drawing<Ink>): boolean {
+  if (!isDimension(value.width) || !isDimension(value.height) || !Array.isArray(value.layers)) return false
+  const ids = new Set<string>()
+  for (const layer of value.layers) {
+    if (!layer || typeof layer.id !== 'string' || !layer.id || ids.has(layer.id) ||
+        typeof layer.visible !== 'boolean' || !Number.isInteger(layer.opacity) || layer.opacity < 0 || layer.opacity > 100 ||
+        !Array.isArray(layer.cells) || layer.cells.length !== value.width * value.height) return false
+    ids.add(layer.id)
+  }
+  return ids.has(value.activeLayerId)
+}
+
+function recoverProject<Ink>(stored: StoredProject<Ink>, store: IDBObjectStore, recovered: Map<string, string>) {
+  const project = readProject(stored)
   const key = pendingKey(project.number)
   const snapshot = readSnapshot(key)
-  if (!snapshot) return
+  if (!snapshot) return project
 
   try {
     const saved = JSON.parse(snapshot)
-    const legacy = !('width' in saved) && !('height' in saved)
-    if (legacy && (project.width !== defaultDimension || project.height !== defaultDimension)) return
-
-    const { cells } = saved
-    const width = legacy ? defaultDimension : saved.width
-    const height = legacy ? defaultDimension : saved.height
-    if (!isDimension(width) || !isDimension(height) || !Array.isArray(cells) || cells.length !== width * height) return
-
-    Object.assign(project, { width, height, cells })
+    if ('layers' in saved) {
+      if (!isDrawing(saved)) return project
+      const { width, height, layers, activeLayerId } = saved as Drawing<Ink>
+      Object.assign(project, { width, height, layers, activeLayerId })
+    } else if ('layers' in stored) {
+      // An older editor's journal must never replace a layered project.
+      recovered.set(key, snapshot)
+      return project
+    } else {
+      const legacy = !('width' in saved) && !('height' in saved)
+      if (legacy && (project.width !== defaultDimension || project.height !== defaultDimension)) return project
+      const { cells } = saved
+      const width = legacy ? defaultDimension : saved.width
+      const height = legacy ? defaultDimension : saved.height
+      if (!isDimension(width) || !isDimension(height) || !Array.isArray(cells) || cells.length !== width * height) return project
+      Object.assign(project, { width, height })
+      project.layers[0].cells = cells
+    }
     store.put(project)
     recovered.set(key, snapshot)
   } catch {
-    // Keep the stored grid if the snapshot is invalid.
+    // Keep the stored project if the journal is invalid.
   }
+  return project
 }
 
 export function openProjects(): Promise<IDBDatabase> {
@@ -98,8 +126,7 @@ export function loadLibrary<Ink>(db: IDBDatabase, first?: NewProject<Ink>): Prom
     const library: Library<Ink> = { projects: [], selected: undefined }
 
     savedProjects.onsuccess = () => {
-      library.projects = (savedProjects.result as StoredProject<Ink>[]).map(readProject)
-      for (const project of library.projects) recoverGrid(project, store, recovered)
+      library.projects = (savedProjects.result as StoredProject<Ink>[]).map(project => recoverProject(project, store, recovered))
 
       if (library.projects.length === 0 && first) {
         const insert = store.add(first)
@@ -181,7 +208,7 @@ function updateProject<Ink>(
     request.onsuccess = () => {
       // Recovery or a newer edit may have superseded this write while the transaction waited.
       if (!snapshot || readSnapshot(snapshot.key) === snapshot.value) {
-        store.put({ ...request.result, ...fields, number })
+        store.put({ ...readProject<Ink>(request.result), ...fields, number })
       }
       transaction.commit()
     }
@@ -194,11 +221,11 @@ export function renameProject(db: IDBDatabase, number: number, name: string) {
   return updateProject(db, number, { name })
 }
 
-export async function saveProject<Ink>(db: IDBDatabase, number: number, grid: GridData<Ink>) {
-  // Journal the entire grid synchronously, even if the write is queued.
+export async function saveProject<Ink>(db: IDBDatabase, number: number, drawing: Drawing<Ink>) {
+  // Journal the entire drawing synchronously, even if the write is queued.
   const key = pendingKey(number)
-  const { snapshot, previous } = recordSnapshot(key, grid)
-  await updateProject(db, number, grid, snapshot ? { key, value: snapshot } : undefined)
+  const { snapshot, previous } = recordSnapshot(key, drawing)
+  await updateProject(db, number, drawing, snapshot ? { key, value: snapshot } : undefined)
   const completed = snapshot ?? previous
   if (completed) clearSnapshot(key, completed)
 }
