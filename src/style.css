@@ -30,9 +30,15 @@ header h1 {
   padding: 20px;
 }
 .start { place-items: center; }
-.editor {
+.workspace {
+  display: grid;
   height: calc(100dvh - 64px);
   min-height: 300px;
+  grid-template: minmax(0, 1fr) auto / minmax(0, 1fr);
+  padding-bottom: 20px;
+}
+.editor {
+  min-height: 0;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 12px;
 }
@@ -88,3 +94,53 @@ input { width: 100%; margin: 6px 0 20px; border: 1px solid #7d8379; }
 button { background: #374e3c; color: white; border: 0; cursor: pointer; }
 button:disabled { background: #69726a; cursor: default; }
 :focus-visible { outline: 3px solid #a15b30; outline-offset: 3px; }
+
+.project-number { white-space: nowrap; }
+.project-actions, .form-actions {
+  display: flex;
+  gap: 8px;
+}
+.project-actions { margin-left: auto; }
+.project-actions button { white-space: nowrap; }
+button.secondary {
+  background: #e8e9df;
+  color: #303a31;
+}
+button.secondary:disabled { color: #69726a; }
+.project-bar {
+  justify-self: center;
+  display: flex;
+  gap: 8px;
+  max-width: 100%;
+  padding: 8px;
+  overflow-x: auto;
+  background: #faf8f1;
+  border: 1px solid #c9cbbf;
+  border-radius: 14px;
+  box-shadow: 0 4px 16px #303a3124;
+}
+.project-bar button {
+  flex: none;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 4px 10px;
+  background: #e8e9df;
+  color: #303a31;
+  font-variant-numeric: tabular-nums;
+}
+.project-bar button[aria-current="true"] {
+  background: #374e3c;
+  color: white;
+  font-weight: 700;
+}
+dialog {
+  width: min(400px, calc(100% - 32px));
+  padding: 0;
+  color: inherit;
+  background: #fffcf6;
+  border: 1px solid #c9cbbf;
+  border-radius: 8px;
+}
+dialog::backdrop { background: #303a3166; }
+dialog form { border: 0; }
+dialog [role="alert"] { margin: 0 32px 24px; }
