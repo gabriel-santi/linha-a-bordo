@@ -14,7 +14,7 @@ async function create(page: Page) {
 
 async function expectProject(page: Page) {
   await expect(page.getByRole('banner').getByRole('heading')).toHaveText(name)
-  await expect(page.getByText('Bordado nº 1')).toBeVisible()
+  await expect(page.getByRole('navigation').locator('[aria-current="true"]')).toHaveText('1')
 }
 
 function storedProjects(page: Page) {
@@ -156,7 +156,7 @@ test('preserva o primeiro bordado quando duas abas tentam criar ao mesmo tempo',
   await Promise.all(tabs.map((tab, index) => tab.getByLabel('Nome do bordado').fill(names[index])))
   await Promise.all(tabs.map(tab => tab.getByRole('button', { name: 'Criar bordado' }).click()))
   for (const tab of tabs) {
-    await expect(tab.getByText('Bordado nº 1')).toBeVisible()
+    await expect(tab.getByRole('navigation').locator('[aria-current="true"]')).toHaveText('1')
   }
   const projects = await storedProjects(second)
   expect(projects).toHaveLength(1)

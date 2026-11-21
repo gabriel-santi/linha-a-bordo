@@ -17,6 +17,7 @@ function buttons(page: Page) {
 async function expectOpen(page: Page, number: number, name: string, colors: string[] = [empty]) {
   await expect(page.getByRole('banner').getByRole('heading')).toHaveText(name)
   await expect(page.getByRole('button', { name: 'Bordado ' + number + ': ' + name, exact: true })).toHaveAttribute('aria-current', 'true')
+  await expect(page.getByRole('banner').getByText(/Bordado nº/)).toHaveCount(0)
   const actual = await page.locator('canvas').evaluate((canvas: HTMLCanvasElement, length) =>
     Array.from({ length }, (_, col) => {
       const pixels = canvas.getContext('2d')!.getImageData(col * 16 + 8, 8, 1, 1).data

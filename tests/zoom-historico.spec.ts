@@ -49,26 +49,60 @@ test('navega pela grade ampliada, edita as bordas e volta à vista inteira', asy
   const center: Cell = [30, 30]
   await draw(page, canvas, [center])
 
-  await zoomIn.click()
-  await zoomIn.click()
-  await expect(zoom.getByRole('status')).toHaveText('300%')
-  expect((await canvas.boundingBox())!.width).toBeCloseTo(initialWidth * 3)
-  const centered = await area.evaluate(element => [
-    element.scrollLeft + element.clientWidth / 2 - element.scrollWidth / 2,
-    element.scrollTop + element.clientHeight / 2 - element.scrollHeight / 2,
-  ])
-  for (const offset of centered) expect(Math.abs(offset)).toBeLessThanOrEqual(1)
+  const zoomOut = zoom.getByRole('button', { name: 'Diminuir zoom' })
+  const current = zoom.getByRole('status')
+  await expect(current).toHaveText('100%')
+  await expect(zoomOut).toBeDisabled()
+  await expect(fit).toBeDisabled()
+  const centerInCanvas = () => area.evaluate(element => {
+    const view = element.getBoundingClientRect()
+    const grid = element.querySelector('canvas')!.getBoundingClientRect()
+    return [
+      (view.left + element.clientWidth / 2 - grid.left) / grid.width,
+      (view.top + element.clientHeight / 2 - grid.top) / grid.height,
+    ]
+  })
+  for (const percent of [150, 200, 250, 300, 350, 400]) {
+    const before = await centerInCanvas()
+    await zoomIn.click()
+    await expect(current).toHaveText(percent + '%')
+    const width = (await canvas.boundingBox())!.width
+    expect(width).toBeCloseTo(initialWidth * percent / 100)
+    const after = await centerInCanvas()
+    for (const [axis, coordinate] of after.entries()) {
+      // The browser stores scroll offsets as whole CSS pixels.
+      expect(Math.abs(coordinate - before[axis]) * width).toBeLessThanOrEqual(1)
+    }
+  }
+  await expect(zoomIn).toBeDisabled()
+  for (const percent of [350, 300, 250, 200, 150, 100]) {
+    await zoomOut.click()
+    await expect(current).toHaveText(percent + '%')
+  }
+  await expect(zoomOut).toBeDisabled()
+  for (let step = 0; step < 3; step++) await zoomIn.click()
+  await expect(current).toHaveText('250%')
+
 
   await area.hover()
-  await page.mouse.wheel(-4000, -4000)
+  await page.mouse.wheel(-5000, -5000)
   await expect.poll(() => area.evaluate(element => [element.scrollLeft, element.scrollTop])).toEqual([0, 0])
   const first: Cell = [0, 0]
   await page.getByRole('button', { name: 'Azul' }).click()
   await draw(page, canvas, [first])
-  expect(await colors(canvas, [first, [1, 0], [0, 1]])).toEqual([blue, empty, empty])
+  const firstNeighbors: Cell[] = [first, [1, 0], [0, 1]]
+  expect(await colors(canvas, firstNeighbors)).toEqual([blue, empty, empty])
+  await page.getByRole('button', { name: 'Borracha' }).click()
+  await draw(page, canvas, [first])
+  expect(await colors(canvas, firstNeighbors)).toEqual([empty, empty, empty])
+  await page.keyboard.press('Control+z')
+  expect(await colors(canvas, firstNeighbors)).toEqual([blue, empty, empty])
+  await page.getByRole('button', { name: 'Azul' }).click()
+  for (let step = 0; step < 3; step++) await zoomIn.click()
+  await expect(current).toHaveText('400%')
 
   await area.hover()
-  await page.mouse.wheel(4000, 4000)
+  await page.mouse.wheel(5000, 5000)
   await expect.poll(() => area.evaluate(element => [
     element.scrollWidth - element.clientWidth - element.scrollLeft,
     element.scrollHeight - element.clientHeight - element.scrollTop,

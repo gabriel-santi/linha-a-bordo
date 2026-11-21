@@ -1,4 +1,4 @@
-# Linha a Bordo
+# Linha a bordo
 
 Editor de bordado em ponto cruz. O navegador salva o bordado automaticamente.
 

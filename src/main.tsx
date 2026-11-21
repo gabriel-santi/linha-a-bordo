@@ -60,7 +60,7 @@ function downloadPng(project: Project<Ink>) {
 
   const link = document.createElement('a')
   const name = Array.from(project.name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')).slice(0, 54).join('').trim()
-  link.download = 'Bordado ' + project.number + ' - ' + name + '.png'
+  link.download = name + '.png'
   link.href = canvas.toDataURL('image/png')
   link.click()
 }
@@ -274,10 +274,10 @@ function Editor({ project, onSave }: {
         </div>
         <div className="zoom" role="group" aria-label="Zoom da grade">
           <button type="button" aria-label="Diminuir zoom" disabled={zoom === 1}
-            onClick={() => changeZoom(zoom - 1)}>−</button>
+            onClick={() => changeZoom(zoom - 0.5)}>−</button>
           <output aria-label="Zoom atual">{zoom * 100}%</output>
           <button type="button" aria-label="Aumentar zoom" disabled={zoom === 4}
-            onClick={() => changeZoom(zoom + 1)}>+</button>
+            onClick={() => changeZoom(zoom + 0.5)}>+</button>
           <button type="button" disabled={zoom === 1} onClick={() => changeZoom(1)}>Ajustar à tela</button>
         </div>
       </div>
@@ -433,10 +433,9 @@ function App() {
   return (
     <div className="app">
       <header>
-        <span className="brand">Linha a Bordo</span>
+        <span className="brand">Linha a bordo</span>
         {project && <>
           <h1 title={project.name}>{project.name}</h1>
-          <span className="project-number">Bordado nº {project.number}</span>
           <div className="project-actions">
             <button className="secondary" type="button" onClick={() => downloadPng(project)}>Baixar PNG</button>
             <button className="secondary" type="button" onClick={() => openDialog('rename')}>Renomear</button>
