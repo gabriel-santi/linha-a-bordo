@@ -166,7 +166,8 @@ test('D1 valida os eixos separadamente e cria seis combinações sem perder sele
       await field.press('Enter')
       await expect(field).toHaveAttribute('aria-invalid', 'true')
       await expect(field).toHaveAccessibleDescription('Use um inteiro de 1 a 200.')
-      await expect(page.getByRole('img')).toHaveCount(0)
+      // Only the grid counts here; the header logo is also an image.
+      await expect(page.getByRole('img', { name: /^Grade de bordado/ })).toHaveCount(0)
     }
     await field.fill('60')
   }
@@ -301,7 +302,10 @@ for (const [width, height] of [[80, 70], [1, 200], [200, 1], [200, 200]] as cons
     })
     await expect(canvas(page)).toBeInViewport({ ratio: 1 })
     const fit = await geometry()
-    expect(fit.width / fit.height).toBeCloseTo(fit.aspect, width > height * 10 ? 0 : 2)
+    // A very wide grid is only a few pixels tall, and the browser lays heights out in steps of 1/64 px.
+    // There the aspect is checked as the height derived from the width, within one layout step.
+    if (width > height * 10) expect(Math.abs(fit.height - fit.width / fit.aspect)).toBeLessThanOrEqual(1 / 64)
+    else expect(fit.width / fit.height).toBeCloseTo(fit.aspect, 2)
     const to: Point = [width === 1 ? 0 : 12, height === 1 ? 0 : 12]
     await draw(page, [0, 0], to)
     const path: Painted[] = Array.from({ length: 13 }, (_, i) => [width === 1 ? 0 : i, height === 1 ? 0 : i, black])

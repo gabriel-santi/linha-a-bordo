@@ -107,7 +107,7 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 1920, height: 108
     }
 
     await button(page, 'Renomear').focus()
-    await page.keyboard.press('Shift+Tab')
+    await page.keyboard.press('Tab')
     await expect(download).toBeFocused()
     if (info.repeatEachIndex === 0) {
       await page.screenshot({ path: info.outputPath('editor-' + viewport.width + '.png') })

@@ -1,11 +1,14 @@
+/// <reference types="vite/client" />
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode, type Ref } from 'react'
 import { createRoot } from 'react-dom/client'
+import { ArrowDown, ArrowUp, Download, Eraser, ImagePlus, LayersPlus, PenLine, Plus, Scaling, Shrink, Trash2, ZoomIn, ZoomOut, type LucideIcon } from 'lucide-react'
 import { createProject, loadLibrary, openProjects, renameProject, saveProject, selectProject, type Project } from './projects'
 import { defaultDimension, isDimension, maxDimension, type Dimensions } from './geometry'
 import { newDrawing, newLayer, resizeDrawing, type Drawing, type Layer } from './layers'
 import { palette, type Color } from './palette'
 import { fitImage } from './image-import'
 import type { ImportRequest, ImportResponse } from './import-worker'
+import logo from './assets/logo.png'
 import './style.css'
 
 const pitch = 16
@@ -137,6 +140,33 @@ function pointerPoint(event: PointerEvent<HTMLCanvasElement>) {
     x: (event.clientX - left) * canvas.width / (width * pitch),
     y: (event.clientY - top) * canvas.height / (height * pitch),
   }
+}
+
+// Decorative: every button keeps its text or aria-label as its accessible name.
+function Icon({ icon: Glyph }: { icon: LucideIcon }) {
+  return <Glyph className="icon" size={18} strokeWidth={2} aria-hidden="true" focusable="false" />
+}
+
+// Icon-only button: the label is its accessible name and the tip shown on hover and keyboard focus.
+function IconButton({ label, icon, tip = 'center', side = 'top', className, disabled, onClick }: {
+  label: string
+  icon: LucideIcon
+  tip?: 'start' | 'center' | 'end'
+  side?: 'top' | 'bottom'
+  className?: string
+  disabled?: boolean
+  onClick: () => void
+}) {
+  const [dismissed, setDismissed] = useState(false)
+  return (
+    <button type="button" className={className ? 'secondary icon-button ' + className : 'secondary icon-button'} aria-label={label} disabled={disabled}
+      data-tip={tip} data-tip-side={side === 'bottom' ? side : undefined} data-tip-dismissed={dismissed || undefined} onClick={onClick}
+      onKeyDown={event => { if (event.key === 'Escape') setDismissed(true) }}
+      onBlur={() => setDismissed(false)} onPointerLeave={() => setDismissed(false)}>
+      <Icon icon={icon} />
+      <span className="tip" aria-hidden="true">{label}</span>
+    </button>
+  )
 }
 
 type EditorHandle = { finishEdits: () => void, visibleDrawing: () => Drawing<Ink> }
@@ -451,46 +481,54 @@ function Editor({ project, onSave, ref }: {
     <main className="editor">
       <div className="editor-tools">
         <div className="palette" role="group" aria-label="Paleta de cores e borracha">
-          {palette.map(([name, color]) => (
-            <button key={color} type="button" className="swatch"
-              aria-label={name} aria-pressed={ink === color} title={name}
-              style={{ '--swatch': color } as CSSProperties}
-              onClick={() => chooseColor(color)} />
-          ))}
-          <button type="button" aria-pressed={erasing} onClick={() => setErasing(true)}>
-            Borracha
+          <div className="swatches">
+            {palette.map(([name, color]) => (
+              <button key={color} type="button" className="swatch"
+                aria-label={name} aria-pressed={ink === color} title={name}
+                style={{ '--swatch': color } as CSSProperties}
+                onClick={() => chooseColor(color)} />
+            ))}
+          </div>
+          <div className="color-tools" role="group" aria-label="Cor personalizada">
+            <label className="color-picker">
+              <span>Cor</span>
+              <input type="color" value={color} onChange={event => chooseColor(event.target.value as Color)} />
+            </label>
+            <label className="hex-color">
+              <span>Hexadecimal</span>
+              <input id="hex-color" value={hex} spellCheck={false} autoComplete="off"
+                aria-invalid={invalidHex} aria-describedby={invalidHex ? 'hex-error' : undefined}
+                onChange={event => editHex(event.target.value)}
+                onBlur={() => { if (!invalidHex) setHex(color) }} />
+            </label>
+            {invalidHex && <span id="hex-error" role="status">Use o formato #RRGGBB.</span>}
+          </div>
+          <div className="eraser-tools">
+            <button type="button" className="secondary eraser" aria-pressed={erasing} onClick={() => setErasing(true)}>
+              <Icon icon={Eraser} />Borracha
+            </button>
+            <label className="eraser-size">
+              <span>Tamanho da borracha</span>
+              <select id="eraser-size" value={eraserSize} onChange={event => setEraserSize(Number(event.target.value))}>
+                {eraserSizes.map(size => <option key={size} value={size}>{size}×{size}</option>)}
+              </select>
+            </label>
+          </div>
+        </div>
+        <div className="zoom" role="group" aria-label="Zoom da grade">
+          <IconButton label="Diminuir zoom" icon={ZoomOut} tip="start" disabled={zoom === 1}
+            onClick={() => changeZoom(zoom - 0.5)} />
+          <output aria-label="Zoom atual">{zoom * 100}%</output>
+          <IconButton label="Aumentar zoom" icon={ZoomIn} tip="end" disabled={zoom === 4}
+            onClick={() => changeZoom(zoom + 0.5)} />
+          <button type="button" className="secondary fit-control" disabled={zoom === 1} onClick={() => changeZoom(1)}>
+            <Icon icon={Shrink} />Ajustar à tela
           </button>
         </div>
-        <div className="color-tools" role="group" aria-label="Cor personalizada">
-          <label className="color-picker">
-            <span>Cor</span>
-            <input type="color" value={color} onChange={event => chooseColor(event.target.value as Color)} />
-          </label>
-          <label className="hex-color">
-            <span>Hexadecimal</span>
-            <input id="hex-color" value={hex} spellCheck={false} autoComplete="off"
-              aria-invalid={invalidHex} aria-describedby={invalidHex ? 'hex-error' : undefined}
-              onChange={event => editHex(event.target.value)}
-              onBlur={() => { if (!invalidHex) setHex(color) }} />
-          </label>
-          {invalidHex && <span id="hex-error" role="status">Use o formato #RRGGBB.</span>}
+        <div className="grid-tools">
+          <button type="button" className="secondary resize-control"
+            onClick={() => { finishEdits(); setResizing(true) }}><Icon icon={Scaling} />Redimensionar</button>
         </div>
-        <label className="eraser-size">
-          <span>Tamanho da borracha</span>
-          <select id="eraser-size" value={eraserSize} onChange={event => setEraserSize(Number(event.target.value))}>
-            {eraserSizes.map(size => <option key={size} value={size}>{size}×{size}</option>)}
-          </select>
-        </label>
-        <div className="zoom" role="group" aria-label="Zoom da grade">
-          <button type="button" aria-label="Diminuir zoom" disabled={zoom === 1}
-            onClick={() => changeZoom(zoom - 0.5)}>−</button>
-          <output aria-label="Zoom atual">{zoom * 100}%</output>
-          <button type="button" aria-label="Aumentar zoom" disabled={zoom === 4}
-            onClick={() => changeZoom(zoom + 0.5)}>+</button>
-          <button type="button" disabled={zoom === 1} onClick={() => changeZoom(1)}>Ajustar à tela</button>
-        </div>
-        <button type="button" className="secondary resize-control"
-          onClick={() => { finishEdits(); setResizing(true) }}>Redimensionar</button>
       </div>
       <div className="editor-workarea">
         <div className="grid-area" ref={viewport} role="region" tabIndex={0} aria-label="Área da grade">
@@ -507,7 +545,7 @@ function Editor({ project, onSave, ref }: {
         <section className="layer-panel" aria-labelledby="layers-title">
           <div className="layer-header">
             <h2 id="layers-title">Camadas</h2>
-            <button type="button" onClick={addLayer}>Nova camada</button>
+            <button type="button" className="secondary" onClick={addLayer}><Icon icon={LayersPlus} />Nova camada</button>
           </div>
           <ol className="layer-list" reversed aria-label="Ordem das camadas, do topo à base">
             {layers.map((layer, index) => ({ layer, index })).reverse().map(({ layer, index }) => (
@@ -547,15 +585,15 @@ function Editor({ project, onSave, ref }: {
                 onBlur={() => finishOpacity()} />
             </div>
             <div className="layer-actions">
-              <button type="button" className="secondary" aria-label="Subir camada"
-                disabled={layerIndex === layers.length - 1} onClick={() => moveLayer(1)}>Subir</button>
-              <button type="button" className="secondary" aria-label="Descer camada"
-                disabled={layerIndex === 0} onClick={() => moveLayer(-1)}>Descer</button>
-              <button type="button" className="secondary" aria-label="Excluir camada"
-                disabled={layers.length === 1} onClick={requestDelete}>Excluir</button>
+              <IconButton label="Subir camada" icon={ArrowUp} tip="start"
+                disabled={layerIndex === layers.length - 1} onClick={() => moveLayer(1)} />
+              <IconButton label="Descer camada" icon={ArrowDown}
+                disabled={layerIndex === 0} onClick={() => moveLayer(-1)} />
+              <IconButton label="Excluir camada" icon={Trash2} tip="end" className="delete-layer"
+                disabled={layers.length === 1} onClick={requestDelete} />
             </div>
           </div>
-          <ImageButton className="secondary import-control" onBeforeOpen={finishEdits} onChoose={chooseImage}>Importar imagem</ImageButton>
+          <ImageButton className="secondary import-control" onBeforeOpen={finishEdits} onChoose={chooseImage}><Icon icon={ImagePlus} />Importar imagem</ImageButton>
           {!activeLayer.visible && <p className="layer-hint" role="status">Mostre a camada para editar.</p>}
         </section>
       </div>
@@ -953,31 +991,38 @@ function App() {
   return (
     <div className="app">
       <header>
-        <span className="brand">Linha a bordo</span>
-        {project && <>
+        <img className="brand" src={logo} alt="Linha a bordo" width={549} height={106} />
+        {project && <div className="project-title">
           <h1 title={project.name}>{project.name}</h1>
-          <div className="project-actions">
-            <button className="secondary" type="button" onClick={() => downloadPng({ ...project, ...editor.current?.visibleDrawing() })}>Baixar PNG</button>
-            <button className="secondary" type="button" onClick={() => openDialog('rename')}>Renomear</button>
-            <button type="button" onClick={() => openDialog('create')}>Novo bordado</button>
-          </div>
-        </>}
-        {error && !dialog && <span role="alert">{error}</span>}
-        {[...drawingSaves].map(([number, { message }]) => message && <span key={number} role="alert">
-          {number !== selected && ('Bordado ' + number + ': ')}{message}
-        </span>)}
+          <IconButton label="Renomear" icon={PenLine} side="bottom" className="rename-project" onClick={() => openDialog('rename')} />
+        </div>}
+        <div className="header-end">
+          {project && <div className="project-actions">
+            <button className="secondary" type="button" onClick={() => downloadPng({ ...project, ...editor.current?.visibleDrawing() })}>
+              <Icon icon={Download} />Baixar PNG
+            </button>
+          </div>}
+          {error && !dialog && <span role="alert">{error}</span>}
+          {[...drawingSaves].map(([number, { message }]) => message && <span key={number} role="alert">
+            {number !== selected && ('Bordado ' + number + ': ')}{message}
+          </span>)}
+        </div>
       </header>
       {project ? (
         <div className="workspace">
           <Editor ref={editor} key={project.number} project={project} onSave={save} />
-          <nav className="project-bar" aria-label="Bordados locais">
-            {projects.map(item => (
-              <button key={item.number} type="button"
-                aria-label={`Bordado ${item.number}: ${item.name}`}
-                aria-current={item.number === selected ? 'true' : undefined}
-                onClick={() => select(item.number)}>{item.number}</button>
-            ))}
-          </nav>
+          {/* The add button sits outside the scrolling list, so it stays reachable however many projects exist. */}
+          <div className="project-dock">
+            <nav className="project-bar" aria-label="Bordados locais">
+              {projects.map(item => (
+                <button key={item.number} type="button"
+                  aria-label={`Bordado ${item.number}: ${item.name}`}
+                  aria-current={item.number === selected ? 'true' : undefined}
+                  onClick={() => select(item.number)}>{item.number}</button>
+              ))}
+            </nav>
+            <IconButton label="Novo bordado" icon={Plus} tip="end" className="new-project" onClick={() => openDialog('create')} />
+          </div>
         </div>
       ) : db ? (
         <main className="start"><ProjectForm mode="create" busy={busy} onSubmit={create} /></main>

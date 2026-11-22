@@ -16,7 +16,10 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 1920, height: 108
     }
 
     await expect(page).toHaveTitle('Linha a bordo')
-    await expect(header).toHaveText('Linha a bordo')
+    // The header shows the logo; its accessible name keeps the product name.
+    const logo = header.getByRole('img', { name: 'Linha a bordo', exact: true })
+    await expect(logo).toBeVisible()
+    await expect(logo).toHaveAttribute('alt', 'Linha a bordo')
     await expect(root).toHaveCSS('color-scheme', 'dark')
     await expect(create).toBeDisabled()
     await page.keyboard.press('Tab')
@@ -28,9 +31,12 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 1920, height: 108
     await page.keyboard.press('Enter')
     await expect(header.getByRole('heading')).toHaveText('Linha lilás')
     const rename = header.getByRole('button', { name: 'Renomear' })
-    const newProject = header.getByRole('button', { name: 'Novo bordado' })
+    const download = header.getByRole('button', { name: 'Baixar PNG' })
+    // "Novo bordado" follows the last numbered project in the bottom bar.
+    const newProject = page.locator('.project-dock').getByRole('button', { name: 'Novo bordado' })
+    const projectButtons = page.getByRole('navigation').getByRole('button')
 
-    await rename.focus()
+    await projectButtons.last().focus()
     await page.keyboard.press('Tab')
     await expect(newProject).toBeFocused()
     await page.keyboard.press('Enter')
@@ -41,6 +47,8 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 1920, height: 108
     await page.keyboard.press('Escape')
     await expect(newProject).toBeFocused()
 
+    // The pencil beside the title comes right before the header's download action.
+    await download.focus()
     await page.keyboard.press('Shift+Tab')
     await expect(rename).toBeFocused()
     await page.keyboard.press('Space')
@@ -54,6 +62,7 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 1920, height: 108
     await page.reload()
     await expect(root).toHaveCSS('color-scheme', 'dark')
     await expect(header.getByRole('heading')).toHaveText('Linha lilás')
+    await expect(logo).toBeVisible()
     await expect(page.getByRole('navigation').getByRole('button')).toHaveAttribute('aria-current', 'true')
     await capture('editor')
   })
