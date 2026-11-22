@@ -1,5 +1,5 @@
 import { chromium, expect, test, type Page, type TestInfo } from '@playwright/test'
-import { readLibrary, type Cell, type Drawing, type Layer } from './layer-data'
+import { readLibrary, type Cell, type Drawing, type Layer, type Project } from './layer-data'
 
 type Point = [number, number]
 type Mark = [number, number, string]
@@ -330,6 +330,46 @@ test('L3 finaliza o traço quando a camada muda durante a captura', async ({ pag
 })
 
 test('L5 remapeia três camadas e confirma corte de branco oculto a 0%', async ({ page }, info) => {
+  async function readDrawing(): Promise<Project> {
+    type SparseLayer = Omit<Layer, 'cells'> & { length: number, painted: [number, Cell][] }
+    type SparseProject = Omit<Project, 'layers'> & { layers: SparseLayer[] }
+    // Avoid transferring each empty cell through Playwright. Rebuild the full vectors for the same assertions.
+    const project = await page.evaluate(() => new Promise<SparseProject>((resolve, reject) => {
+      const open = indexedDB.open('linha-a-bordo')
+      open.onerror = () => reject(open.error)
+      open.onsuccess = () => {
+        const db = open.result
+        const tx = db.transaction('projects')
+        const request = tx.objectStore('projects').get(1)
+        tx.onabort = () => { db.close(); reject(tx.error) }
+        tx.oncomplete = () => {
+          db.close()
+          try {
+            const { layers, ...project } = request.result as Project
+            resolve({
+              ...project,
+              layers: layers.map(({ cells, ...layer }) => ({
+                ...layer,
+                length: cells.length,
+                painted: Array.from(cells.entries()).filter(([, cell]) => cell !== null),
+              })),
+            })
+          } catch (error) {
+            reject(error)
+          }
+        }
+      }
+    }))
+    return {
+      ...project,
+      layers: project.layers.map(({ length, painted, ...layer }) => {
+        const cells = Array<Cell>(length).fill(null)
+        for (const [index, cell] of painted) cells[index] = cell
+        return { ...layer, cells }
+      }),
+    }
+  }
+
   await create(page, 'Pilha grande', 80, 70)
   await paint(page, 'Azul', [0, 0], [1, 0])
   await add(page)
@@ -340,7 +380,7 @@ test('L5 remapeia três camadas e confirma corte de branco oculto a 0%', async (
   await opacity(page, 50)
   await resize(page, 200, 200)
   await expectOpen(page, 'Pilha grande', 200, 200)
-  const before = await read(page)
+  const before = await readDrawing()
   const [a, b, c] = before.layers.map(layer => layer.id)
   expectDrawing(before, 200, 200, c,
     layer(a, cells(200, 200, [0, 0, blue], [1, 0, blue])),
@@ -349,30 +389,30 @@ test('L5 remapeia três camadas e confirma corte de branco oculto a 0%', async (
 
   await opacity(page, 0)
   await visibility(page).uncheck()
-  const beforeCrop = await read(page)
+  const beforeCrop = await readDrawing()
   await resize(page, 200, 200)
-  expect(await read(page)).toEqual(beforeCrop)
+  expect(await readDrawing()).toEqual(beforeCrop)
   await resize(page, 200, 1)
   await expect(page.getByRole('dialog')).toHaveAccessibleName('Confirmar corte')
   await page.keyboard.press('Escape')
-  expect(await read(page)).toEqual(beforeCrop)
+  expect(await readDrawing()).toEqual(beforeCrop)
   await resize(page, 200, 1)
   await button(page, 'Confirmar corte').click()
   await expectOpen(page, 'Pilha grande', 200, 1)
-  expectDrawing(await read(page), 200, 1, c, layer(a, cells(200, 1, [0, 0, blue], [1, 0, blue])),
+  expectDrawing(await readDrawing(), 200, 1, c, layer(a, cells(200, 1, [0, 0, blue], [1, 0, blue])),
     layer(b, cells(200, 1, [0, 0, red]), 50), layer(c, cells(200, 1, [0, 0, white]), 0, false))
   await undo(page)
-  expect(await read(page)).toEqual(beforeCrop)
+  expect(await readDrawing()).toEqual(beforeCrop)
   await redo(page)
   await resize(page, 1, 200)
   await button(page, 'Confirmar corte').click()
   await expectOpen(page, 'Pilha grande', 1, 200)
-  expectDrawing(await read(page), 1, 200, c, layer(a, cells(1, 200, [0, 0, blue])),
+  expectDrawing(await readDrawing(), 1, 200, c, layer(a, cells(1, 200, [0, 0, blue])),
     layer(b, cells(1, 200, [0, 0, red]), 50), layer(c, cells(1, 200, [0, 0, white]), 0, false))
   await png(page, info, 'Pilha grande.png', 1, 200, [over(rgba(blue), red, 50)])
   await undo(page)
   await undo(page)
-  expect(await read(page)).toEqual(beforeCrop)
+  expect(await readDrawing()).toEqual(beforeCrop)
 })
 
 test('L8 exporta três camadas a 4000 × 4000, preservando pilhas de dois bordados', async ({ page }, info) => {
