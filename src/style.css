@@ -253,3 +253,29 @@ dialog {
 dialog::backdrop { background: var(--backdrop); }
 dialog form { border: 0; }
 dialog [role="alert"] { margin: 0 32px 24px; }
+
+dialog.import-dialog { width: min(760px, calc(100% - 32px)); max-height: calc(100dvh - 32px); }
+.import-dialog form { width: 100%; padding: 20px 24px; display: grid; gap: 12px; }
+.import-dialog h1 { margin: 0; font-size: 28px; }
+.import-dialog p { margin: 0; overflow-wrap: anywhere; }
+.preview-mode { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 0; padding: 0; border: 0; }
+.preview-mode legend { float: left; margin-right: 4px; padding: 0; font-weight: 600; }
+.preview-mode label { display: flex; align-items: center; gap: 6px; font-weight: 400; }
+.preview-mode input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary); }
+.import-preview {
+  position: relative;
+  height: clamp(160px, calc(100dvh - 300px), 560px);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--page);
+}
+.import-preview canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  box-shadow: none;
+  cursor: default;
+}
+.import-dialog .form-actions { flex-wrap: wrap; }

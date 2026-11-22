@@ -3,33 +3,19 @@ import { createRoot } from 'react-dom/client'
 import { createProject, loadLibrary, openProjects, renameProject, saveProject, selectProject, type Project } from './projects'
 import { defaultDimension, isDimension, maxDimension, type Dimensions } from './geometry'
 import { newDrawing, newLayer, resizeDrawing, type Drawing, type Layer } from './layers'
+import { palette, type Color } from './palette'
+import { fitImage } from './image-import'
+import type { ImportRequest, ImportResponse } from './import-worker'
 import './style.css'
 
 const pitch = 16
 const empty = '#fffcf6'
 const majorLine = '#535e4d'
 const fineLine = '#b5b8ab'
-const palette = [
-  ['Preto', '#222222'],
-  ['Cinza', '#777777'],
-  ['Branco', '#ffffff'],
-  ['Marrom', '#774631'],
-  ['Bege', '#dcc29b'],
-  ['Vermelho', '#c82e37'],
-  ['Laranja', '#eb782b'],
-  ['Amarelo', '#f3d344'],
-  ['Verde', '#3b804a'],
-  ['Azul', '#3066bd'],
-  ['Roxo', '#773e9d'],
-  ['Rosa', '#df72a3'],
-  ['Verde-claro', '#90ce97'],
-  ['Azul-claro', '#8dbbfa'],
-] as const
 
 const eraserSizes = [1, 3, 5, 9] as const
 const hexColor = /^#[0-9a-f]{6}$/i
 
-type Color = `#${string}`
 type Ink = Color | null
 type Point = { x: number, y: number }
 type Stroke = { layerId: string, ink: Ink, before: Map<number, Ink> }
@@ -168,6 +154,7 @@ function Editor({ project, onSave, ref }: {
   const redo = useRef<DrawingAction[]>([])
   const [resizing, setResizing] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [importing, setImporting] = useState<{ file: File, base: Drawing<Ink> } | null>(null)
   const opacityDrag = useRef<{ pointerId: number, value: number } | null>(null)
   const [previewOpacity, setPreviewOpacity] = useState<number>()
   const layerIndex = layers.findIndex(layer => layer.id === activeLayerId)
@@ -252,7 +239,7 @@ function Editor({ project, onSave, ref }: {
 
   useEffect(() => {
     function handleHistory(event: KeyboardEvent) {
-      if (resizing || deleting || (event.target instanceof HTMLElement && (
+      if (resizing || deleting || importing || (event.target instanceof HTMLElement && (
         event.target.isContentEditable || event.target.closest('dialog, textarea') ||
         (event.target instanceof HTMLInputElement && !['range', 'checkbox', 'radio'].includes(event.target.type))
       ))) return
@@ -286,7 +273,7 @@ function Editor({ project, onSave, ref }: {
 
     window.addEventListener('keydown', handleHistory)
     return () => window.removeEventListener('keydown', handleHistory)
-  }, [apply, deleting, finishOpacity, resizing])
+  }, [apply, deleting, finishOpacity, importing, resizing])
 
   function resize(dimensions: Dimensions) {
     setResizing(false)
@@ -344,6 +331,21 @@ function Editor({ project, onSave, ref }: {
     if (current.layers.length < 2) return
     if (current.layers[layerIndex].cells.some(ink => ink !== null)) setDeleting(true)
     else deleteLayer()
+  }
+
+  function chooseImage(file: File) {
+    finishEdits()
+    setImporting({ file, base: drawing.current })
+  }
+
+  function confirmImport(base: Drawing<Ink>, cells: Ink[]) {
+    setImporting(null)
+    const current = drawing.current
+    // The conversion belongs to the grid it was made for.
+    if (current !== base || cells.length !== current.width * current.height) return
+
+    const layer = { ...newLayer<Ink>(current, null), cells }
+    commit({ ...current, layers: [...current.layers, layer], activeLayerId: layer.id })
   }
 
   function trace(ctx: CanvasRenderingContext2D, active: Gesture, point: Point) {
@@ -553,9 +555,12 @@ function Editor({ project, onSave, ref }: {
                 disabled={layers.length === 1} onClick={requestDelete}>Excluir</button>
             </div>
           </div>
+          <ImageButton className="secondary import-control" onBeforeOpen={finishEdits} onChoose={chooseImage}>Importar imagem</ImageButton>
           {!activeLayer.visible && <p className="layer-hint" role="status">Mostre a camada para editar.</p>}
         </section>
       </div>
+      {importing && <ImportDialog file={importing.file} base={importing.base}
+        onChoose={chooseImage} onConfirm={cells => confirmImport(importing.base, cells)} onCancel={() => setImporting(null)} />}
       {resizing && <ResizeDialog grid={drawing.current} onSubmit={resize} onCancel={() => setResizing(false)} />}
       {deleting && <Modal title="delete-layer-title" description="delete-layer-description" onCancel={() => setDeleting(false)}>
         <form onSubmit={event => { event.preventDefault(); deleteLayer() }}>
@@ -569,6 +574,122 @@ function Editor({ project, onSave, ref }: {
       </Modal>}
     </main>
   )
+}
+
+function ImageButton({ className, children, onBeforeOpen, onChoose }: {
+  className?: string
+  children: ReactNode
+  onBeforeOpen?: () => void
+  onChoose: (file: File) => void
+}) {
+  const input = useRef<HTMLInputElement>(null)
+  return <>
+    <button type="button" className={className} onClick={() => { onBeforeOpen?.(); input.current!.click() }}>{children}</button>
+    <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden tabIndex={-1} aria-hidden="true"
+      onChange={event => {
+        const file = event.target.files?.[0]
+        event.target.value = ''
+        if (file) onChoose(file)
+      }} />
+  </>
+}
+
+type Conversion =
+  | { status: 'converting' }
+  | { status: 'ready', file: File, cells: Ink[], source: Dimensions }
+  | { status: 'error', file: File, message: string }
+
+const importErrors = {
+  format: 'Escolha uma imagem PNG, JPEG ou WebP. O bordado não foi alterado.',
+  decode: 'Não foi possível ler esta imagem. O bordado não foi alterado.',
+}
+
+function ImportDialog({ file, base, onChoose, onConfirm, onCancel }: {
+  file: File
+  base: Drawing<Ink>
+  onChoose: (file: File) => void
+  onConfirm: (cells: Ink[]) => void
+  onCancel: () => void
+}) {
+  const [conversion, setConversion] = useState<Conversion>({ status: 'converting' })
+  const [onlyNew, setOnlyNew] = useState(false)
+  const preview = useRef<HTMLCanvasElement>(null)
+  const confirmed = useRef(false)
+  const cancel = useRef<HTMLButtonElement>(null)
+  // A result only counts for the file it was made from, even before the next effect runs.
+  const current = conversion.status !== 'converting' && conversion.file === file ? conversion : undefined
+  const ready = current?.status === 'ready' ? current : undefined
+
+  useEffect(() => {
+    setConversion({ status: 'converting' })
+    const worker = new Worker(new URL('./import-worker.ts', import.meta.url), { type: 'module' })
+    let pending = true
+    const finish = (response: ImportResponse) => {
+      if (!pending) return
+      pending = false
+      worker.terminate()
+      if ('error' in response) setConversion({ status: 'error', file, message: importErrors[response.error] })
+      else if (response.cells.length !== base.width * base.height) setConversion({ status: 'error', file, message: importErrors.decode })
+      else setConversion({ status: 'ready', file, source: response.source,
+        cells: Array.from(response.cells, index => index < 0 ? null : palette[index][1]) })
+    }
+    worker.onmessage = (event: MessageEvent<ImportResponse>) => finish(event.data)
+    worker.onerror = () => finish({ error: 'decode' })
+    worker.postMessage({ file, grid: { width: base.width, height: base.height } } satisfies ImportRequest)
+    return () => {
+      // Discard a conversion that is replaced, canceled or belongs to a closed editor.
+      pending = false
+      worker.onmessage = null
+      worker.onerror = null
+      worker.terminate()
+    }
+  }, [file, base])
+
+  // The Modal opens in its own layout effect, which runs before this one.
+  useLayoutEffect(() => cancel.current!.focus(), [])
+
+  useLayoutEffect(() => {
+    if (!ready || !preview.current) return
+    const layer = { id: 'preview', visible: true, opacity: 100, cells: ready.cells }
+    const shown = { ...base, layers: onlyNew ? [layer] : [...base.layers, layer] }
+    const ctx = preview.current.getContext('2d')!
+    drawLayers(ctx, shown, pitch, true)
+    drawGridLines(ctx, shown, pitch)
+  }, [base, onlyNew, ready])
+
+  const placement = ready && fitImage(ready.source, base)
+  const position = base.layers.length + 1
+
+  return <Modal title="import-title" description="import-description" className="import-dialog" onCancel={onCancel}>
+    <form onSubmit={event => {
+      event.preventDefault()
+      if (!ready || confirmed.current) return
+      confirmed.current = true
+      onConfirm(ready.cells)
+    }}>
+      <h1 id="import-title">Importar imagem</h1>
+      {current?.status === 'error'
+        ? <p id="import-description" role="alert">{current.message}</p>
+        : <p id="import-description" role="status">{placement
+          ? `${file.name}: ${ready.source.width} × ${ready.source.height} pixels em ${placement.width} × ${placement.height} pontos. ` +
+            `A imagem entra como camada ${position}, no topo, visível e com opacidade de 100%.`
+          : `Convertendo ${file.name}…`}</p>}
+      <fieldset className="preview-mode" disabled={!ready}>
+        <legend>Mostrar na prévia</legend>
+        <label><input type="radio" name="preview-mode" checked={!onlyNew} onChange={() => setOnlyNew(false)} />Composição completa</label>
+        <label><input type="radio" name="preview-mode" checked={onlyNew} onChange={() => setOnlyNew(true)} />Somente a nova camada</label>
+      </fieldset>
+      <div className="import-preview">
+        {ready && <canvas ref={preview} width={base.width * pitch + 2} height={base.height * pitch + 2} role="img"
+          aria-label={onlyNew ? 'Prévia da camada importada' : 'Prévia da composição com a camada importada no topo'} />}
+      </div>
+      <div className="form-actions">
+        <button disabled={!ready}>Confirmar importação</button>
+        <ImageButton className="secondary" onChoose={onChoose}>Escolher outro arquivo</ImageButton>
+        <button ref={cancel} type="button" className="secondary" onClick={onCancel}>Cancelar</button>
+      </div>
+    </form>
+  </Modal>
 }
 
 type DimensionDraft = Record<keyof Dimensions, string>
@@ -610,11 +731,12 @@ function DimensionFields({ draft, onChange, disabled }: {
   </div>
 }
 
-function Modal({ title, children, onCancel, description }: {
+function Modal({ title, children, onCancel, description, className }: {
   title: string
   children: ReactNode
   onCancel: () => void
   description?: string
+  className?: string
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
 
@@ -624,7 +746,7 @@ function Modal({ title, children, onCancel, description }: {
     return () => element.close()
   }, [])
 
-  return <dialog ref={dialog} aria-labelledby={title} aria-describedby={description} onCancel={event => {
+  return <dialog ref={dialog} className={className} aria-labelledby={title} aria-describedby={description} onCancel={event => {
     event.preventDefault()
     onCancel()
   }}>{children}</dialog>
