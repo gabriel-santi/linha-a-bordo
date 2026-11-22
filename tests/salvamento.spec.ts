@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { readLibrary, singleLayer } from './layer-data'
 
 const name = 'Jardim de ipês'
 const empty = '#fffcf6'
@@ -17,27 +18,23 @@ async function expectProject(page: Page) {
   await expect(page.getByRole('navigation').locator('[aria-current="true"]')).toHaveText('1')
 }
 
-function storedProjects(page: Page) {
-  return page.evaluate(() => new Promise<{ number: number, name: string, width: 60, height: 60, cells: (string | null)[] }[]>((resolve, reject) => {
-    const open = indexedDB.open('linha-a-bordo')
-    open.onerror = () => reject(open.error)
-    open.onsuccess = () => {
-      const db = open.result
-      const transaction = db.transaction('projects')
-      const result = transaction.objectStore('projects').getAll()
-      transaction.oncomplete = () => { db.close(); resolve(result.result) }
-      transaction.onabort = () => { db.close(); reject(transaction.error) }
-    }
-  }))
+async function storedProjects(page: Page) {
+  return (await readLibrary(page)).projects
 }
 
-async function draw(page: Page, from: number, to = from) {
+async function draw(page: Page, from: number, to = from, closesOnRelease = false) {
   const box = (await page.locator('canvas').boundingBox())!
   const move = (col: number) => page.mouse.move(box.x + (col * 16 + 8) * box.width / 962, box.y + 8 * box.height / 962)
   await move(from)
   await page.mouse.down()
   if (to !== from) await move(to)
-  await page.mouse.up()
+  try {
+    await page.mouse.up()
+  } catch (error) {
+    // The pointerup handler may close the target before Chromium acknowledges this command.
+    if (!closesOnRelease || !(error instanceof Error) ||
+        !error.message.includes('Target page, context or browser has been closed')) throw error
+  }
 }
 
 function expectColors(page: Page, colors: string[]) {
@@ -55,7 +52,7 @@ test('salva a identidade e todas as células mesmo com o bordado vazio', async (
   await page.reload()
   await expectProject(page)
   await expectColors(page, [empty])
-  expect(await storedProjects(page)).toEqual([{ number: 1, name, width: 60, height: 60, cells: Array(3600).fill(null) }])
+  expect(await storedProjects(page)).toEqual([{ number: 1, name, width: 60, height: 60, ...singleLayer(Array(3600).fill(null)) }])
 })
 
 test('persiste pintura, borracha, undo e redo e reabre o desenho editável', async ({ page, context }) => {
@@ -90,7 +87,7 @@ test('persiste pintura, borracha, undo e redo e reabre o desenho editável', asy
   const cells = Array<string | null>(3600).fill(null)
   cells[0] = white
   cells[1] = blue
-  expect(await storedProjects(reopened)).toEqual([{ number: 1, name, width: 60, height: 60, cells }])
+  expect(await storedProjects(reopened)).toEqual([{ number: 1, name, width: 60, height: 60, ...singleLayer(cells) }])
 
   await draw(reopened, 2)
   await reopened.reload()
@@ -132,18 +129,23 @@ for (const [exit, label] of [['reload', 'recarga imediata'], ['close', 'fechamen
       }
     }))
 
+    const cells = Array<string | null>(3600).fill(null)
+    cells.fill('#222222', 2, 5)
     const exited = editor.waitForEvent(exit === 'reload' ? 'load' : 'close')
-    await draw(editor, 2, 4)
-    await exited
-    await page.evaluate(() => window.dispatchEvent(new Event('release-project-store')))
+    try {
+      await Promise.all([draw(editor, 2, 4, exit === 'close'), exited])
+      // The write lock is still held, so recovery must come from the completed gesture's journal.
+      const pending = await page.evaluate(() => JSON.parse(localStorage.getItem('linha-a-bordo:pending:1') ?? 'null'))
+      expect(pending).toMatchObject({ width: 60, height: 60, ...singleLayer(cells) })
+    } finally {
+      await page.evaluate(() => window.dispatchEvent(new Event('release-project-store')))
+    }
 
     const reopened = exit === 'reload' ? editor : await page.context().newPage()
     if (exit === 'close') await reopened.goto('/')
     await expectProject(reopened)
     await expectColors(reopened, [empty, empty, '#222222', '#222222', '#222222'])
-    const cells = Array<string | null>(3600).fill(null)
-    cells.fill('#222222', 2, 5)
-    expect(await storedProjects(reopened)).toEqual([{ number: 1, name, width: 60, height: 60, cells }])
+    expect(await storedProjects(reopened)).toEqual([{ number: 1, name, width: 60, height: 60, ...singleLayer(cells) }])
     expect(await reopened.evaluate(() => localStorage.getItem('linha-a-bordo:pending:1'))).toBeNull()
   })
 }
