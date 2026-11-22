@@ -962,18 +962,18 @@ function App() {
     <div className="app">
       <header>
         <img className="brand" src={logo} alt="Linha a bordo" width={549} height={106} />
-        {project && <>
-          <h1 title={project.name}>{project.name}</h1>
-          <div className="project-actions">
+        {project && <h1 title={project.name}>{project.name}</h1>}
+        <div className="header-end">
+          {project && <div className="project-actions">
             <button className="secondary" type="button" onClick={() => downloadPng({ ...project, ...editor.current?.visibleDrawing() })}>Baixar PNG</button>
             <button className="secondary" type="button" onClick={() => openDialog('rename')}>Renomear</button>
             <button type="button" onClick={() => openDialog('create')}>Novo bordado</button>
-          </div>
-        </>}
-        {error && !dialog && <span role="alert">{error}</span>}
-        {[...drawingSaves].map(([number, { message }]) => message && <span key={number} role="alert">
-          {number !== selected && ('Bordado ' + number + ': ')}{message}
-        </span>)}
+          </div>}
+          {error && !dialog && <span role="alert">{error}</span>}
+          {[...drawingSaves].map(([number, { message }]) => message && <span key={number} role="alert">
+            {number !== selected && ('Bordado ' + number + ': ')}{message}
+          </span>)}
+        </div>
       </header>
       {project ? (
         <div className="workspace">

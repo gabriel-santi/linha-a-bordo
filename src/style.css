@@ -26,9 +26,13 @@
 * { box-sizing: border-box; }
 body { margin: 0; }
 .app { min-height: 100dvh; }
+/* Three columns: equal side tracks keep the title on the page's center line; each side
+   never shrinks below its content, so a long title truncates instead of overlapping. */
 header {
   height: 64px;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(min-content, 1fr) minmax(0, auto) minmax(min-content, 1fr);
+  grid-template-rows: 100%;
   align-items: center;
   gap: 28px;
   padding: 0 20px;
@@ -37,10 +41,13 @@ header {
 }
 h1 { font-family: "Spectral", Georgia, serif; }
 /* User artwork, cropped to its opaque area only; scaled by height so it never distorts.
-   41px centers it on whole pixels inside the 63px header content box. */
-.brand { display: block; flex: none; width: auto; height: 41px; }
+   37px centers it on whole pixels inside the 63px header content box. */
+.brand { display: block; grid-column: 1; width: auto; height: 37px; }
 header h1 {
+  grid-column: 2;
+  min-width: 0;
   margin: 0;
+  text-align: center;
   font-size: 24px;
   overflow: hidden;
   white-space: nowrap;
@@ -285,7 +292,15 @@ button:disabled, button.secondary:disabled, .project-bar button:disabled {
   display: flex;
   gap: 8px;
 }
-.project-actions { margin-left: auto; }
+.header-end {
+  grid-column: 3;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+}
+/* Alerts keep one line, so the title gives way to them rather than covering them. */
+.header-end [role="alert"] { white-space: nowrap; }
 .project-actions button { white-space: nowrap; }
 button.secondary {
   background: var(--secondary);
