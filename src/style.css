@@ -9,9 +9,10 @@
   --border: #514a59;
   --field-border: #93869c;
   --primary: #edb898;
+  --primary-hover: #f5c9ae;
   --primary-text: #291a15;
   --secondary: #393241;
-  --disabled: #2d2833;
+  --secondary-hover: #463e50;
   --disabled-text: #b0a4b9;
   --focus: #d4b4ff;
   --selected-ring: #f3edf6;
@@ -20,23 +21,33 @@
   --backdrop: #08060abd;
   color: var(--text);
   background: var(--page);
+  scrollbar-color: var(--field-border) var(--page);
 }
 * { box-sizing: border-box; }
 body { margin: 0; }
 .app { min-height: 100dvh; }
+/* Three columns: equal side tracks keep the title on the page's center line; each side
+   never shrinks below its content, so a long title truncates instead of overlapping. */
 header {
   height: 64px;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(min-content, 1fr) minmax(0, auto) minmax(min-content, 1fr);
+  grid-template-rows: 100%;
   align-items: center;
   gap: 28px;
-  padding: 0 4vw;
+  padding: 0 20px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
-.brand, h1 { font-family: "Spectral", Georgia, serif; }
-.brand { color: var(--brand); font-size: 22px; white-space: nowrap; }
+h1 { font-family: "Spectral", Georgia, serif; }
+/* User artwork, cropped to its opaque area only; scaled by height so it never distorts.
+   37px centers it on whole pixels inside the 63px header content box. */
+.brand { display: block; grid-column: 1; width: auto; height: 37px; }
 header h1 {
+  grid-column: 2;
+  min-width: 0;
   margin: 0;
+  text-align: center;
   font-size: 24px;
   overflow: hidden;
   white-space: nowrap;
@@ -56,31 +67,71 @@ header h1 {
   padding-bottom: 20px;
 }
 .editor {
+  --rail: 264px;
   min-height: 0;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: var(--rail) minmax(0, 1fr);
+  gap: 20px;
 }
-.editor-tools, .palette, .color-tools, .zoom {
+/* Tools rail: same width as the layer panel, so the canvas column stays centered on the page. */
+.editor-tools {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 16px;
+  align-self: start;
+  max-height: 100%;
+  min-width: 0;
+  padding: 14px;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
-.editor-tools { column-gap: 24px; }
-.zoom output { min-width: 42px; text-align: center; }
-.palette button, .zoom button, .resize-control { min-height: 36px; padding: 6px 12px; }
-.palette button[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--page), 0 0 0 4px var(--selected-ring); }
-.palette .swatch {
-  width: 36px;
+.editor-tools button { width: 100%; }
+/* Group order: fixed colors, custom color, then the eraser and its size. */
+.palette {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+.palette .swatch, .palette .swatch:hover:not(:disabled) {
+  width: auto;
+  min-height: 0;
+  aspect-ratio: 1;
+  padding: 0;
   background: var(--swatch);
   border: 1px solid var(--swatch-border);
+}
+.palette .swatch:hover:not(:disabled) { border-color: var(--selected-ring); }
+.palette button[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--selected-ring); }
+.palette .eraser[aria-pressed="true"], .palette .eraser[aria-pressed="true"]:hover:not(:disabled) {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-text);
+  font-weight: 700;
+}
+.color-tools, .eraser-tools, .zoom, .grid-tools {
+  display: grid;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
 }
 .color-tools label, .eraser-size {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 400;
 }
+.zoom { grid-template-columns: 40px minmax(0, 1fr) 40px; align-items: center; }
+.zoom output { text-align: center; font-variant-numeric: tabular-nums; }
+.zoom button { padding: 6px 8px; }
+.zoom button:last-child { grid-column: 1 / -1; }
+.editor-tools button:not(.swatch), .editor-tools input, .editor-tools select { min-height: 36px; }
 .color-tools input, .eraser-size select {
   min-height: 36px;
   margin: 0;
@@ -98,32 +149,35 @@ header h1 {
 }
 .hex-color input { width: 10ch; }
 .hex-color input[aria-invalid="true"] { border-color: var(--brand); }
-#hex-error { color: var(--brand); }
+#hex-error { color: var(--brand); font-size: 14px; }
 .editor-workarea {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 240px;
-  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) var(--rail);
+  gap: 20px;
   min-height: 0;
 }
 .layer-panel {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  align-self: start;
+  max-height: 100%;
   min-width: 0;
-  padding: 12px;
+  padding: 14px;
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
 }
-.layer-header, .layer-actions {
+.layer-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
 }
 .layer-header h2 { margin: 0; font-size: 18px; }
-.layer-panel button { min-height: 36px; padding: 5px 8px; }
+.layer-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.layer-panel button { min-height: 36px; padding: 5px 10px; }
 .layer-list {
   display: grid;
   gap: 6px;
@@ -139,13 +193,15 @@ header h1 {
   justify-content: space-between;
   text-align: left;
 }
-.layer-list button[aria-pressed="true"] {
+.layer-list button[aria-pressed="true"], .layer-list button[aria-pressed="true"]:hover:not(:disabled) {
   background: var(--primary);
+  border-color: var(--primary);
   color: var(--primary-text);
   font-weight: 700;
 }
 .layer-controls { display: grid; gap: 10px; }
-.layer-visible { display: flex; align-items: center; gap: 8px; }
+.layer-visible { display: flex; align-items: center; gap: 8px; font-weight: 400; }
+.layer-opacity label { font-weight: 400; }
 .layer-opacity { display: grid; grid-template-columns: 1fr auto; }
 .layer-opacity output { font-variant-numeric: tabular-nums; }
 .layer-panel input { accent-color: var(--primary); }
@@ -153,6 +209,14 @@ header h1 {
 .layer-panel input[type="range"] { grid-column: 1 / -1; margin: 4px 0 0; padding: 0; }
 .layer-hint { margin: 0; color: var(--brand); }
 canvas[data-hidden-layer] { cursor: not-allowed; }
+@media (max-width: 899px) {
+  .editor { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .editor-tools { align-self: stretch; }
+  .swatches { grid-template-columns: repeat(7, 36px); }
+  /* Stacked layout: the page scrolls, so the grid gets its own definite height. */
+  .workspace { height: auto; }
+  .grid-area { height: min(calc(100vw - 40px), 70dvh); }
+}
 @media (max-width: 680px) {
   .editor-workarea { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(150px, 1fr) auto; }
   .layer-list { max-height: 100px; }
@@ -201,21 +265,49 @@ input { width: 100%; margin: 6px 0 20px; border: 1px solid var(--field-border); 
 .dimension-fields input { margin-bottom: 0; }
 .dimension-fields input[aria-invalid="true"] { border-color: var(--brand); }
 .dimension-error { display: block; margin-top: 4px; color: var(--brand); }
-button { background: var(--primary); color: var(--primary-text); border: 0; cursor: pointer; }
-button:disabled { background: var(--disabled); color: var(--disabled-text); cursor: default; }
+button {
+  background: var(--primary);
+  color: var(--primary-text);
+  border: 1px solid var(--primary);
+  cursor: pointer;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out;
+}
+button:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
+button:active:not(:disabled) { transform: translateY(1px); }
+/* Disabled controls drop their fill, so they never read as an enabled secondary button. */
+button:disabled, button.secondary:disabled, .project-bar button:disabled {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--disabled-text);
+  cursor: not-allowed;
+}
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+::selection { background: var(--focus); color: var(--primary-text); }
+@media (prefers-reduced-motion: reduce) {
+  button { transition: none; }
+  button:active:not(:disabled) { transform: none; }
+}
 
 .project-actions, .form-actions {
   display: flex;
   gap: 8px;
 }
-.project-actions { margin-left: auto; }
+.header-end {
+  grid-column: 3;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+}
+/* Alerts keep one line, so the title gives way to them rather than covering them. */
+.header-end [role="alert"] { white-space: nowrap; }
 .project-actions button { white-space: nowrap; }
 button.secondary {
   background: var(--secondary);
+  border-color: var(--field-border);
   color: var(--text);
 }
-button.secondary:disabled { color: var(--disabled-text); }
+button.secondary:hover:not(:disabled) { background: var(--secondary-hover); border-color: var(--text); }
 .project-bar {
   justify-self: center;
   display: flex;
@@ -234,11 +326,14 @@ button.secondary:disabled { color: var(--disabled-text); }
   min-height: 40px;
   padding: 4px 10px;
   background: var(--secondary);
+  border-color: var(--field-border);
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
-.project-bar button[aria-current="true"] {
+.project-bar button:hover:not(:disabled) { background: var(--secondary-hover); border-color: var(--text); }
+.project-bar button[aria-current="true"], .project-bar button[aria-current="true"]:hover {
   background: var(--primary);
+  border-color: var(--primary);
   color: var(--primary-text);
   font-weight: 700;
 }

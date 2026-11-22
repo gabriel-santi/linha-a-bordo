@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode, type Ref } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createProject, loadLibrary, openProjects, renameProject, saveProject, selectProject, type Project } from './projects'
@@ -6,6 +7,7 @@ import { newDrawing, newLayer, resizeDrawing, type Drawing, type Layer } from '.
 import { palette, type Color } from './palette'
 import { fitImage } from './image-import'
 import type { ImportRequest, ImportResponse } from './import-worker'
+import logo from './assets/logo.png'
 import './style.css'
 
 const pitch = 16
@@ -451,46 +453,52 @@ function Editor({ project, onSave, ref }: {
     <main className="editor">
       <div className="editor-tools">
         <div className="palette" role="group" aria-label="Paleta de cores e borracha">
-          {palette.map(([name, color]) => (
-            <button key={color} type="button" className="swatch"
-              aria-label={name} aria-pressed={ink === color} title={name}
-              style={{ '--swatch': color } as CSSProperties}
-              onClick={() => chooseColor(color)} />
-          ))}
-          <button type="button" aria-pressed={erasing} onClick={() => setErasing(true)}>
-            Borracha
-          </button>
+          <div className="swatches">
+            {palette.map(([name, color]) => (
+              <button key={color} type="button" className="swatch"
+                aria-label={name} aria-pressed={ink === color} title={name}
+                style={{ '--swatch': color } as CSSProperties}
+                onClick={() => chooseColor(color)} />
+            ))}
+          </div>
+          <div className="color-tools" role="group" aria-label="Cor personalizada">
+            <label className="color-picker">
+              <span>Cor</span>
+              <input type="color" value={color} onChange={event => chooseColor(event.target.value as Color)} />
+            </label>
+            <label className="hex-color">
+              <span>Hexadecimal</span>
+              <input id="hex-color" value={hex} spellCheck={false} autoComplete="off"
+                aria-invalid={invalidHex} aria-describedby={invalidHex ? 'hex-error' : undefined}
+                onChange={event => editHex(event.target.value)}
+                onBlur={() => { if (!invalidHex) setHex(color) }} />
+            </label>
+            {invalidHex && <span id="hex-error" role="status">Use o formato #RRGGBB.</span>}
+          </div>
+          <div className="eraser-tools">
+            <button type="button" className="secondary eraser" aria-pressed={erasing} onClick={() => setErasing(true)}>
+              Borracha
+            </button>
+            <label className="eraser-size">
+              <span>Tamanho da borracha</span>
+              <select id="eraser-size" value={eraserSize} onChange={event => setEraserSize(Number(event.target.value))}>
+                {eraserSizes.map(size => <option key={size} value={size}>{size}×{size}</option>)}
+              </select>
+            </label>
+          </div>
         </div>
-        <div className="color-tools" role="group" aria-label="Cor personalizada">
-          <label className="color-picker">
-            <span>Cor</span>
-            <input type="color" value={color} onChange={event => chooseColor(event.target.value as Color)} />
-          </label>
-          <label className="hex-color">
-            <span>Hexadecimal</span>
-            <input id="hex-color" value={hex} spellCheck={false} autoComplete="off"
-              aria-invalid={invalidHex} aria-describedby={invalidHex ? 'hex-error' : undefined}
-              onChange={event => editHex(event.target.value)}
-              onBlur={() => { if (!invalidHex) setHex(color) }} />
-          </label>
-          {invalidHex && <span id="hex-error" role="status">Use o formato #RRGGBB.</span>}
-        </div>
-        <label className="eraser-size">
-          <span>Tamanho da borracha</span>
-          <select id="eraser-size" value={eraserSize} onChange={event => setEraserSize(Number(event.target.value))}>
-            {eraserSizes.map(size => <option key={size} value={size}>{size}×{size}</option>)}
-          </select>
-        </label>
         <div className="zoom" role="group" aria-label="Zoom da grade">
-          <button type="button" aria-label="Diminuir zoom" disabled={zoom === 1}
+          <button type="button" className="secondary" aria-label="Diminuir zoom" disabled={zoom === 1}
             onClick={() => changeZoom(zoom - 0.5)}>−</button>
           <output aria-label="Zoom atual">{zoom * 100}%</output>
-          <button type="button" aria-label="Aumentar zoom" disabled={zoom === 4}
+          <button type="button" className="secondary" aria-label="Aumentar zoom" disabled={zoom === 4}
             onClick={() => changeZoom(zoom + 0.5)}>+</button>
-          <button type="button" disabled={zoom === 1} onClick={() => changeZoom(1)}>Ajustar à tela</button>
+          <button type="button" className="secondary" disabled={zoom === 1} onClick={() => changeZoom(1)}>Ajustar à tela</button>
         </div>
-        <button type="button" className="secondary resize-control"
-          onClick={() => { finishEdits(); setResizing(true) }}>Redimensionar</button>
+        <div className="grid-tools">
+          <button type="button" className="secondary resize-control"
+            onClick={() => { finishEdits(); setResizing(true) }}>Redimensionar</button>
+        </div>
       </div>
       <div className="editor-workarea">
         <div className="grid-area" ref={viewport} role="region" tabIndex={0} aria-label="Área da grade">
@@ -507,7 +515,7 @@ function Editor({ project, onSave, ref }: {
         <section className="layer-panel" aria-labelledby="layers-title">
           <div className="layer-header">
             <h2 id="layers-title">Camadas</h2>
-            <button type="button" onClick={addLayer}>Nova camada</button>
+            <button type="button" className="secondary" onClick={addLayer}>Nova camada</button>
           </div>
           <ol className="layer-list" reversed aria-label="Ordem das camadas, do topo à base">
             {layers.map((layer, index) => ({ layer, index })).reverse().map(({ layer, index }) => (
@@ -953,19 +961,19 @@ function App() {
   return (
     <div className="app">
       <header>
-        <span className="brand">Linha a bordo</span>
-        {project && <>
-          <h1 title={project.name}>{project.name}</h1>
-          <div className="project-actions">
+        <img className="brand" src={logo} alt="Linha a bordo" width={549} height={106} />
+        {project && <h1 title={project.name}>{project.name}</h1>}
+        <div className="header-end">
+          {project && <div className="project-actions">
             <button className="secondary" type="button" onClick={() => downloadPng({ ...project, ...editor.current?.visibleDrawing() })}>Baixar PNG</button>
             <button className="secondary" type="button" onClick={() => openDialog('rename')}>Renomear</button>
             <button type="button" onClick={() => openDialog('create')}>Novo bordado</button>
-          </div>
-        </>}
-        {error && !dialog && <span role="alert">{error}</span>}
-        {[...drawingSaves].map(([number, { message }]) => message && <span key={number} role="alert">
-          {number !== selected && ('Bordado ' + number + ': ')}{message}
-        </span>)}
+          </div>}
+          {error && !dialog && <span role="alert">{error}</span>}
+          {[...drawingSaves].map(([number, { message }]) => message && <span key={number} role="alert">
+            {number !== selected && ('Bordado ' + number + ': ')}{message}
+          </span>)}
+        </div>
       </header>
       {project ? (
         <div className="workspace">
