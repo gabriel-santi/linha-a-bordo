@@ -651,3 +651,46 @@ test('L6 sinaliza falha de gravação e mantém o último estado persistido', as
   await expectPixels(page, [0, 0, blue])
   expect(await read(page)).toEqual(stored)
 })
+
+test('L6 avisa quando a quota real impede a proteção de edições com o IndexedDB pendente', async ({ page, context }) => {
+  await create(page, 'Quota', 5, 4)
+  await paint(page, 'Azul', [0, 0])
+  const stored = await read(page)
+  const blocker = await context.newPage()
+  await blocker.goto('/')
+  await expectOpen(blocker, 'Quota', 5, 4)
+  await lock(blocker)
+  try {
+    await page.evaluate(() => {
+      const key = 'quota-test'
+      localStorage.setItem(key, 'x'.repeat(5 * 1024 * 1024 - key.length - 32))
+      const setItem = Storage.prototype.setItem
+      Storage.prototype.setItem = function (key, value) {
+        try {
+          setItem.call(this, key, value)
+        } catch (error) {
+          document.body.dataset.storageError = (error as DOMException).name
+          throw error
+        }
+      }
+    })
+    await opacity(page, 37)
+    await expect(page.locator('body')).toHaveAttribute('data-storage-error', 'QuotaExceededError')
+    await expect(page.getByRole('alert')).toHaveText(
+      'A última edição ainda não foi salva. Se fechar a página agora, a alteração pode ser perdida.',
+    )
+    expect(await journals(page)).toEqual({})
+    await opacity(page, 62)
+    await expect(page.getByRole('alert')).toBeVisible()
+  } finally {
+    await unlock(blocker)
+  }
+
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  const layers = stored.layers.map(layer => ({ ...layer, opacity: 62 }))
+  expect(await read(page)).toEqual({ ...stored, layers })
+  await page.reload()
+  await expectOpen(page, 'Quota', 5, 4)
+  await expect(range(page)).toHaveValue('62')
+  expect(await read(page)).toEqual({ ...stored, layers })
+})

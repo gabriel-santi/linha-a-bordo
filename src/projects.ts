@@ -221,11 +221,13 @@ export function renameProject(db: IDBDatabase, number: number, name: string) {
   return updateProject(db, number, { name })
 }
 
-export async function saveProject<Ink>(db: IDBDatabase, number: number, drawing: Drawing<Ink>) {
-  // Journal the entire drawing synchronously, even if the write is queued.
+export function saveProject<Ink>(db: IDBDatabase, number: number, drawing: Drawing<Ink>) {
+  // Report journal availability before the IndexedDB write can wait on a lock.
   const key = pendingKey(number)
   const { snapshot, previous } = recordSnapshot(key, drawing)
-  await updateProject(db, number, drawing, snapshot ? { key, value: snapshot } : undefined)
-  const completed = snapshot ?? previous
-  if (completed) clearSnapshot(key, completed)
+  const committed = updateProject(db, number, drawing, snapshot ? { key, value: snapshot } : undefined).then(() => {
+    const completed = snapshot ?? previous
+    if (completed) clearSnapshot(key, completed)
+  })
+  return { journaled: snapshot !== null, committed }
 }

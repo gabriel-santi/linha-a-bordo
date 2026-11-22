@@ -727,6 +727,7 @@ function App() {
   const [dialog, setDialog] = useState<'create' | 'rename' | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [drawingSaves, setDrawingSaves] = useState(new Map<number, { committed: Promise<void>, message: string }>())
 
   const editor = useRef<EditorHandle>(null)
   const project = projects.find(item => item.number === selected)
@@ -805,7 +806,26 @@ function App() {
 
     setProjects(items => items.map(item => item.number === selected ? { ...item, ...grid } : item))
     setError('')
-    void saveProject(db, selected, grid).catch(() => setError('Não foi possível salvar a última edição.'))
+    const { journaled, committed } = saveProject(db, selected, grid)
+    setDrawingSaves(current => new Map(current).set(selected, {
+      committed,
+      message: journaled ? '' : 'A última edição ainda não foi salva. Se fechar a página agora, a alteração pode ser perdida.',
+    }))
+
+    const finish = (message: string) => {
+      setDrawingSaves(current => {
+        // Only the latest edit to this project can change its alert.
+        if (current.get(selected)?.committed !== committed) return current
+        const next = new Map(current)
+        if (message) next.set(selected, { committed, message })
+        else next.delete(selected)
+        return next
+      })
+    }
+    void committed.then(
+      () => finish(''),
+      () => finish('Não foi possível salvar a última edição.'),
+    )
   }, [db, selected])
 
   return (
@@ -821,6 +841,9 @@ function App() {
           </div>
         </>}
         {error && !dialog && <span role="alert">{error}</span>}
+        {[...drawingSaves].map(([number, { message }]) => message && <span key={number} role="alert">
+          {number !== selected && ('Bordado ' + number + ': ')}{message}
+        </span>)}
       </header>
       {project ? (
         <div className="workspace">
