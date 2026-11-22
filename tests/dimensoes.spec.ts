@@ -166,7 +166,8 @@ test('D1 valida os eixos separadamente e cria seis combinações sem perder sele
       await field.press('Enter')
       await expect(field).toHaveAttribute('aria-invalid', 'true')
       await expect(field).toHaveAccessibleDescription('Use um inteiro de 1 a 200.')
-      await expect(page.getByRole('img')).toHaveCount(0)
+      // Only the grid counts here; the header logo is also an image.
+      await expect(page.getByRole('img', { name: /^Grade de bordado/ })).toHaveCount(0)
     }
     await field.fill('60')
   }

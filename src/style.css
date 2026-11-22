@@ -35,8 +35,10 @@ header {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
-.brand, h1 { font-family: "Spectral", Georgia, serif; }
-.brand { color: var(--brand); font-size: 22px; white-space: nowrap; }
+h1 { font-family: "Spectral", Georgia, serif; }
+/* User artwork, cropped to its opaque area only; scaled by height so it never distorts.
+   41px centers it on whole pixels inside the 63px header content box. */
+.brand { display: block; flex: none; width: auto; height: 41px; }
 header h1 {
   margin: 0;
   font-size: 24px;
@@ -78,7 +80,13 @@ header h1 {
   border-radius: 8px;
 }
 .editor-tools button { width: 100%; }
+/* Group order: fixed colors, custom color, then the eraser and its size. */
 .palette {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.swatches {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 6px;
@@ -93,15 +101,13 @@ header h1 {
 }
 .palette .swatch:hover:not(:disabled) { border-color: var(--selected-ring); }
 .palette button[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--selected-ring); }
-.palette .eraser { grid-column: 1 / -1; margin-top: 6px; }
 .palette .eraser[aria-pressed="true"], .palette .eraser[aria-pressed="true"]:hover:not(:disabled) {
   background: var(--primary);
   border-color: var(--primary);
   color: var(--primary-text);
   font-weight: 700;
 }
-.eraser-size { margin-top: -6px; }
-.color-tools, .zoom, .grid-tools {
+.color-tools, .eraser-tools, .zoom, .grid-tools {
   display: grid;
   gap: 8px;
   padding-top: 16px;
@@ -199,7 +205,7 @@ canvas[data-hidden-layer] { cursor: not-allowed; }
 @media (max-width: 899px) {
   .editor { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .editor-tools { align-self: stretch; }
-  .palette { grid-template-columns: repeat(7, 36px); }
+  .swatches { grid-template-columns: repeat(7, 36px); }
   /* Stacked layout: the page scrolls, so the grid gets its own definite height. */
   .workspace { height: auto; }
   .grid-area { height: min(calc(100vw - 40px), 70dvh); }
