@@ -148,10 +148,11 @@ function Icon({ icon: Glyph }: { icon: LucideIcon }) {
 }
 
 // Icon-only button: the label is its accessible name and the tip shown on hover and keyboard focus.
-function IconButton({ label, icon, tip = 'center', className, disabled, onClick }: {
+function IconButton({ label, icon, tip = 'center', side = 'top', className, disabled, onClick }: {
   label: string
   icon: LucideIcon
   tip?: 'start' | 'center' | 'end'
+  side?: 'top' | 'bottom'
   className?: string
   disabled?: boolean
   onClick: () => void
@@ -159,7 +160,7 @@ function IconButton({ label, icon, tip = 'center', className, disabled, onClick 
   const [dismissed, setDismissed] = useState(false)
   return (
     <button type="button" className={className ? 'secondary icon-button ' + className : 'secondary icon-button'} aria-label={label} disabled={disabled}
-      data-tip={tip} data-tip-dismissed={dismissed || undefined} onClick={onClick}
+      data-tip={tip} data-tip-side={side === 'bottom' ? side : undefined} data-tip-dismissed={dismissed || undefined} onClick={onClick}
       onKeyDown={event => { if (event.key === 'Escape') setDismissed(true) }}
       onBlur={() => setDismissed(false)} onPointerLeave={() => setDismissed(false)}>
       <Icon icon={icon} />
@@ -991,14 +992,15 @@ function App() {
     <div className="app">
       <header>
         <img className="brand" src={logo} alt="Linha a bordo" width={549} height={106} />
-        {project && <h1 title={project.name}>{project.name}</h1>}
+        {project && <div className="project-title">
+          <h1 title={project.name}>{project.name}</h1>
+          <IconButton label="Renomear" icon={PenLine} side="bottom" className="rename-project" onClick={() => openDialog('rename')} />
+        </div>}
         <div className="header-end">
           {project && <div className="project-actions">
             <button className="secondary" type="button" onClick={() => downloadPng({ ...project, ...editor.current?.visibleDrawing() })}>
               <Icon icon={Download} />Baixar PNG
             </button>
-            <button className="secondary" type="button" onClick={() => openDialog('rename')}><Icon icon={PenLine} />Renomear</button>
-            <button type="button" onClick={() => openDialog('create')}><Icon icon={Plus} />Novo bordado</button>
           </div>}
           {error && !dialog && <span role="alert">{error}</span>}
           {[...drawingSaves].map(([number, { message }]) => message && <span key={number} role="alert">
@@ -1009,14 +1011,18 @@ function App() {
       {project ? (
         <div className="workspace">
           <Editor ref={editor} key={project.number} project={project} onSave={save} />
-          <nav className="project-bar" aria-label="Bordados locais">
-            {projects.map(item => (
-              <button key={item.number} type="button"
-                aria-label={`Bordado ${item.number}: ${item.name}`}
-                aria-current={item.number === selected ? 'true' : undefined}
-                onClick={() => select(item.number)}>{item.number}</button>
-            ))}
-          </nav>
+          {/* The add button sits outside the scrolling list, so it stays reachable however many projects exist. */}
+          <div className="project-dock">
+            <nav className="project-bar" aria-label="Bordados locais">
+              {projects.map(item => (
+                <button key={item.number} type="button"
+                  aria-label={`Bordado ${item.number}: ${item.name}`}
+                  aria-current={item.number === selected ? 'true' : undefined}
+                  onClick={() => select(item.number)}>{item.number}</button>
+              ))}
+            </nav>
+            <IconButton label="Novo bordado" icon={Plus} tip="end" className="new-project" onClick={() => openDialog('create')} />
+          </div>
         </div>
       ) : db ? (
         <main className="start"><ProjectForm mode="create" busy={busy} onSubmit={create} /></main>

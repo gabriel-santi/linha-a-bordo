@@ -41,10 +41,21 @@ header {
 }
 h1 { font-family: "Spectral", Georgia, serif; }
 /* User artwork, cropped to its opaque area only; scaled by height so it never distorts.
-   37px centers it on whole pixels inside the 63px header content box. */
-.brand { display: block; grid-column: 1; width: auto; height: 37px; }
-header h1 {
+   37px centers its box on whole pixels inside the 63px header content box; the lowercase letters sit
+   low under the tall needle-L, so it rises 8px to center their x-height band on the title's center line. */
+.brand { display: block; grid-column: 1; width: auto; height: 37px; translate: 0 -8px; }
+/* Empty first track mirrors the pencil's, so the name itself stays on the page's center line. */
+.project-title {
   grid-column: 2;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1fr minmax(0, auto) 1fr;
+  align-items: center;
+  column-gap: 8px;
+}
+.project-title h1 { grid-column: 2; }
+.rename-project { grid-column: 3; justify-self: start; }
+header h1 {
   min-width: 0;
   margin: 0;
   text-align: center;
@@ -318,6 +329,8 @@ button:has(> .icon) {
 }
 [data-tip="start"] .tip { left: 0; translate: 0 2px; }
 [data-tip="end"] .tip { left: auto; right: 0; translate: 0 2px; }
+/* Controls at the top edge show the tip below them, inside the viewport. */
+[data-tip-side="bottom"] .tip { bottom: auto; top: calc(100% + 8px); translate: -50% -2px; }
 .icon-button:hover .tip, .icon-button:focus-visible .tip {
   opacity: 1;
   visibility: visible;
@@ -354,19 +367,35 @@ button.secondary {
   color: var(--text);
 }
 button.secondary:hover:not(:disabled) { background: var(--secondary-hover); border-color: var(--text); }
-.project-bar {
+/* Inline edit beside the title: quiet until hovered, so the name stays the header's focal point. */
+button.rename-project {
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text);
+}
+.project-dock {
   justify-self: center;
   display: flex;
-  gap: 8px;
+  align-items: center;
   max-width: 100%;
-  padding: 8px;
-  overflow-x: auto;
+  padding-right: 8px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: 0 4px 16px var(--shadow);
 }
-.project-bar button {
+/* Only the numbered list scrolls; its padding keeps the focus ring of the end items unclipped. */
+.project-bar {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  overflow-x: auto;
+}
+.project-bar button, .project-dock .new-project {
   flex: none;
   min-width: 40px;
   min-height: 40px;
@@ -376,6 +405,7 @@ button.secondary:hover:not(:disabled) { background: var(--secondary-hover); bord
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
+.project-dock .new-project { padding: 4px; }
 .project-bar button:hover:not(:disabled) { background: var(--secondary-hover); border-color: var(--text); }
 .project-bar button[aria-current="true"], .project-bar button[aria-current="true"]:hover {
   background: var(--primary);

@@ -42,7 +42,7 @@ test('aplica as 14 cores fixas por teclado e distingue branco de vazio até apag
   const eraser = tools.getByRole('button', { name: 'Borracha' })
   await expect(tools.getByRole('button')).toHaveCount(15)
   await expect(tools.getByRole('button', { name: 'Preto', exact: true })).toHaveAttribute('aria-pressed', 'true')
-  await page.getByRole('button', { name: 'Novo bordado' }).focus()
+  await page.getByRole('button', { name: 'Baixar PNG' }).focus()
 
   for (const [col, [name, color]] of Object.entries(palette).entries()) {
     const swatch = tools.getByRole('button', { name, exact: true })
