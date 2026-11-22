@@ -42,8 +42,9 @@ header {
 h1 { font-family: "Spectral", Georgia, serif; }
 /* User artwork, cropped to its opaque area only; scaled by height so it never distorts.
    37px centers its box on whole pixels inside the 63px header content box; the lowercase letters sit
-   low under the tall needle-L, so it rises 8px to center their x-height band on the title's center line. */
-.brand { display: block; grid-column: 1; width: auto; height: 37px; translate: 0 -8px; }
+   low under the tall needle-L; it rises only 3px, keeping 10px of air above it while the x-height band
+   still reads level with the title. */
+.brand { display: block; grid-column: 1; width: auto; height: 37px; translate: 0 -3px; }
 /* Empty first track mirrors the pencil's, so the name itself stays on the page's center line. */
 .project-title {
   grid-column: 2;
