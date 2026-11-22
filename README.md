@@ -8,9 +8,9 @@ Editor de bordado em ponto cruz. O navegador salva o bordado automaticamente.
 
 ## Camadas e histórico
 
-- Cada bordado começa com uma camada vazia. **Nova camada** acrescenta uma camada no topo e a seleciona. A lista mostra a ordem do topo à base. Selecione uma camada para pintar ou apagar nela, ou use **Subir** e **Descer** para alterar a ordem.
+- Cada bordado começa com uma camada vazia. **Nova camada** acrescenta uma camada no topo e a seleciona. A lista mostra a ordem do topo à base. Selecione uma camada para pintar ou apagar nela, ou use as setas **Subir camada** e **Descer camada** para alterar a ordem. Os botões só com ícone mostram o nome ao passar o mouse ou ao receber o foco pelo teclado.
 - Pontos vazios deixam aparecer as camadas inferiores. Branco é uma tinta e cobre o que está abaixo quando a opacidade está em 100%. **Opacidade** de 0% a 100% regula quanto da tinta aparece. **Visível** mostra ou oculta a camada sem apagar seus pontos. Mostre uma camada oculta antes de editar.
-- **Excluir** pede confirmação se a camada contiver pontos pintados, inclusive quando estiver oculta ou com opacidade de 0%. O bordado mantém pelo menos uma camada.
+- **Excluir camada** (lixeira) pede confirmação se a camada contiver pontos pintados, inclusive quando estiver oculta ou com opacidade de 0%. O bordado mantém pelo menos uma camada.
 - **Ctrl+Z** desfaz e **Ctrl+Y** refaz pintura, borracha, criação, importação de imagem, exclusão, ordem, opacidade, visibilidade e redimensionamento. Um traço ou um arraste no controle de opacidade conta como uma ação. Selecionar outra camada não cria uma ação. O histórico é da sessão de edição do bordado aberto.
 - A biblioteca salva as camadas e a seleção ativa com o bordado. Bordados anteriores abrem com o desenho em uma camada.
 

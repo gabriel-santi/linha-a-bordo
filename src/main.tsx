@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode, type Ref } from 'react'
 import { createRoot } from 'react-dom/client'
+import { ArrowDown, ArrowUp, Download, Eraser, ImagePlus, LayersPlus, PenLine, Plus, Scaling, Shrink, Trash2, ZoomIn, ZoomOut, type LucideIcon } from 'lucide-react'
 import { createProject, loadLibrary, openProjects, renameProject, saveProject, selectProject, type Project } from './projects'
 import { defaultDimension, isDimension, maxDimension, type Dimensions } from './geometry'
 import { newDrawing, newLayer, resizeDrawing, type Drawing, type Layer } from './layers'
@@ -139,6 +140,32 @@ function pointerPoint(event: PointerEvent<HTMLCanvasElement>) {
     x: (event.clientX - left) * canvas.width / (width * pitch),
     y: (event.clientY - top) * canvas.height / (height * pitch),
   }
+}
+
+// Decorative: every button keeps its text or aria-label as its accessible name.
+function Icon({ icon: Glyph }: { icon: LucideIcon }) {
+  return <Glyph className="icon" size={18} strokeWidth={2} aria-hidden="true" focusable="false" />
+}
+
+// Icon-only button: the label is its accessible name and the tip shown on hover and keyboard focus.
+function IconButton({ label, icon, tip = 'center', className, disabled, onClick }: {
+  label: string
+  icon: LucideIcon
+  tip?: 'start' | 'center' | 'end'
+  className?: string
+  disabled?: boolean
+  onClick: () => void
+}) {
+  const [dismissed, setDismissed] = useState(false)
+  return (
+    <button type="button" className={className ? 'secondary icon-button ' + className : 'secondary icon-button'} aria-label={label} disabled={disabled}
+      data-tip={tip} data-tip-dismissed={dismissed || undefined} onClick={onClick}
+      onKeyDown={event => { if (event.key === 'Escape') setDismissed(true) }}
+      onBlur={() => setDismissed(false)} onPointerLeave={() => setDismissed(false)}>
+      <Icon icon={icon} />
+      <span className="tip" aria-hidden="true">{label}</span>
+    </button>
+  )
 }
 
 type EditorHandle = { finishEdits: () => void, visibleDrawing: () => Drawing<Ink> }
@@ -477,7 +504,7 @@ function Editor({ project, onSave, ref }: {
           </div>
           <div className="eraser-tools">
             <button type="button" className="secondary eraser" aria-pressed={erasing} onClick={() => setErasing(true)}>
-              Borracha
+              <Icon icon={Eraser} />Borracha
             </button>
             <label className="eraser-size">
               <span>Tamanho da borracha</span>
@@ -488,16 +515,18 @@ function Editor({ project, onSave, ref }: {
           </div>
         </div>
         <div className="zoom" role="group" aria-label="Zoom da grade">
-          <button type="button" className="secondary" aria-label="Diminuir zoom" disabled={zoom === 1}
-            onClick={() => changeZoom(zoom - 0.5)}>−</button>
+          <IconButton label="Diminuir zoom" icon={ZoomOut} tip="start" disabled={zoom === 1}
+            onClick={() => changeZoom(zoom - 0.5)} />
           <output aria-label="Zoom atual">{zoom * 100}%</output>
-          <button type="button" className="secondary" aria-label="Aumentar zoom" disabled={zoom === 4}
-            onClick={() => changeZoom(zoom + 0.5)}>+</button>
-          <button type="button" className="secondary" disabled={zoom === 1} onClick={() => changeZoom(1)}>Ajustar à tela</button>
+          <IconButton label="Aumentar zoom" icon={ZoomIn} tip="end" disabled={zoom === 4}
+            onClick={() => changeZoom(zoom + 0.5)} />
+          <button type="button" className="secondary fit-control" disabled={zoom === 1} onClick={() => changeZoom(1)}>
+            <Icon icon={Shrink} />Ajustar à tela
+          </button>
         </div>
         <div className="grid-tools">
           <button type="button" className="secondary resize-control"
-            onClick={() => { finishEdits(); setResizing(true) }}>Redimensionar</button>
+            onClick={() => { finishEdits(); setResizing(true) }}><Icon icon={Scaling} />Redimensionar</button>
         </div>
       </div>
       <div className="editor-workarea">
@@ -515,7 +544,7 @@ function Editor({ project, onSave, ref }: {
         <section className="layer-panel" aria-labelledby="layers-title">
           <div className="layer-header">
             <h2 id="layers-title">Camadas</h2>
-            <button type="button" className="secondary" onClick={addLayer}>Nova camada</button>
+            <button type="button" className="secondary" onClick={addLayer}><Icon icon={LayersPlus} />Nova camada</button>
           </div>
           <ol className="layer-list" reversed aria-label="Ordem das camadas, do topo à base">
             {layers.map((layer, index) => ({ layer, index })).reverse().map(({ layer, index }) => (
@@ -555,15 +584,15 @@ function Editor({ project, onSave, ref }: {
                 onBlur={() => finishOpacity()} />
             </div>
             <div className="layer-actions">
-              <button type="button" className="secondary" aria-label="Subir camada"
-                disabled={layerIndex === layers.length - 1} onClick={() => moveLayer(1)}>Subir</button>
-              <button type="button" className="secondary" aria-label="Descer camada"
-                disabled={layerIndex === 0} onClick={() => moveLayer(-1)}>Descer</button>
-              <button type="button" className="secondary" aria-label="Excluir camada"
-                disabled={layers.length === 1} onClick={requestDelete}>Excluir</button>
+              <IconButton label="Subir camada" icon={ArrowUp} tip="start"
+                disabled={layerIndex === layers.length - 1} onClick={() => moveLayer(1)} />
+              <IconButton label="Descer camada" icon={ArrowDown}
+                disabled={layerIndex === 0} onClick={() => moveLayer(-1)} />
+              <IconButton label="Excluir camada" icon={Trash2} tip="end" className="delete-layer"
+                disabled={layers.length === 1} onClick={requestDelete} />
             </div>
           </div>
-          <ImageButton className="secondary import-control" onBeforeOpen={finishEdits} onChoose={chooseImage}>Importar imagem</ImageButton>
+          <ImageButton className="secondary import-control" onBeforeOpen={finishEdits} onChoose={chooseImage}><Icon icon={ImagePlus} />Importar imagem</ImageButton>
           {!activeLayer.visible && <p className="layer-hint" role="status">Mostre a camada para editar.</p>}
         </section>
       </div>
@@ -965,9 +994,11 @@ function App() {
         {project && <h1 title={project.name}>{project.name}</h1>}
         <div className="header-end">
           {project && <div className="project-actions">
-            <button className="secondary" type="button" onClick={() => downloadPng({ ...project, ...editor.current?.visibleDrawing() })}>Baixar PNG</button>
-            <button className="secondary" type="button" onClick={() => openDialog('rename')}>Renomear</button>
-            <button type="button" onClick={() => openDialog('create')}>Novo bordado</button>
+            <button className="secondary" type="button" onClick={() => downloadPng({ ...project, ...editor.current?.visibleDrawing() })}>
+              <Icon icon={Download} />Baixar PNG
+            </button>
+            <button className="secondary" type="button" onClick={() => openDialog('rename')}><Icon icon={PenLine} />Renomear</button>
+            <button type="button" onClick={() => openDialog('create')}><Icon icon={Plus} />Novo bordado</button>
           </div>}
           {error && !dialog && <span role="alert">{error}</span>}
           {[...drawingSaves].map(([number, { message }]) => message && <span key={number} role="alert">
