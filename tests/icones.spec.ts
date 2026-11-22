@@ -203,7 +203,7 @@ test('lápis ao lado do nome abre o renomear e continua visível com nome longo'
 })
 
 for (const viewport of [{ width: 1280, height: 720 }, { width: 1920, height: 1080 }]) {
-  test('logo sobe para centrar a faixa das minúsculas no centro do título em ' + viewport.width, async ({ page }) => {
+  test('logo com respiro no topo e minúsculas próximas do centro do título em ' + viewport.width, async ({ page }) => {
     await page.setViewportSize(viewport)
     await createProject(page)
     const measure = await page.evaluate(async () => {
@@ -235,6 +235,7 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 1920, height: 108
     expect(measure.rendered).toBe(37)
     expect(measure.top).toBeGreaterThanOrEqual(0)
     expect(measure.bottom).toBeGreaterThanOrEqual(0)
-    expect(Math.abs(measure.band - measure.title)).toBeLessThanOrEqual(1)
+    expect(Math.abs(measure.top - 10)).toBeLessThanOrEqual(1)
+    expect(Math.abs(measure.band - measure.title)).toBeLessThanOrEqual(6)
   })
 }
