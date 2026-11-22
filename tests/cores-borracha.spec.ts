@@ -76,6 +76,9 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 1920, height: 108
     await eraser.focus()
     await page.keyboard.press('Space')
     await expect(eraser).toHaveAttribute('aria-pressed', 'true')
+    // The eraser size sits next to the eraser, before the custom color.
+    await page.keyboard.press('Tab')
+    await expect(size(page)).toBeFocused()
     await page.keyboard.press('Tab')
     await expect(picker(page)).toBeFocused()
     await expect(picker(page)).toHaveCSS('outline-style', 'solid')
@@ -95,7 +98,9 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 1920, height: 108
     await page.keyboard.press('Control+y')
     expect(await pixels(page, [[2, 2], [3, 2]])).toEqual([black, empty])
     await hex(page).fill('#7B2A04')
-    await page.keyboard.press('Tab')
+    await page.keyboard.press('Shift+Tab')
+    await expect(picker(page)).toBeFocused()
+    await page.keyboard.press('Shift+Tab')
     await expect(size(page)).toBeFocused()
     await expect(hex(page)).toHaveValue(custom)
     await page.keyboard.press('ArrowDown')
@@ -139,7 +144,7 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 1920, height: 108
     await draw(page, sample[0])
     expect(await pixels(page, sample)).toEqual(erased)
 
-    await hex(page).focus()
+    await button(page, 'Borracha').focus()
     await page.keyboard.press('Tab')
     await expect(size(page)).toBeFocused()
     await page.keyboard.press('Control+z')
@@ -147,7 +152,9 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 1920, height: 108
     await expect(size(page)).toBeFocused()
     await page.screenshot({ path: info.outputPath('desfazer-seletor.png') })
 
-    await page.keyboard.press('Shift+Tab')
+    await page.keyboard.press('Tab')
+    await expect(picker(page)).toBeFocused()
+    await page.keyboard.press('Tab')
     await expect(hex(page)).toBeFocused()
     for (const shortcut of ['Control+z', 'Control+y']) {
       await page.keyboard.press(shortcut)
@@ -163,7 +170,7 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 1920, height: 108
     }
     await page.keyboard.press('Escape')
 
-    await hex(page).focus()
+    await button(page, 'Borracha').focus()
     await page.keyboard.press('Tab')
     await expect(size(page)).toBeFocused()
     await page.keyboard.press('Control+y')

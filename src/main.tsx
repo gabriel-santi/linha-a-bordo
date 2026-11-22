@@ -457,10 +457,16 @@ function Editor({ project, onSave, ref }: {
               style={{ '--swatch': color } as CSSProperties}
               onClick={() => chooseColor(color)} />
           ))}
-          <button type="button" aria-pressed={erasing} onClick={() => setErasing(true)}>
+          <button type="button" className="secondary eraser" aria-pressed={erasing} onClick={() => setErasing(true)}>
             Borracha
           </button>
         </div>
+        <label className="eraser-size">
+          <span>Tamanho da borracha</span>
+          <select id="eraser-size" value={eraserSize} onChange={event => setEraserSize(Number(event.target.value))}>
+            {eraserSizes.map(size => <option key={size} value={size}>{size}×{size}</option>)}
+          </select>
+        </label>
         <div className="color-tools" role="group" aria-label="Cor personalizada">
           <label className="color-picker">
             <span>Cor</span>
@@ -475,22 +481,18 @@ function Editor({ project, onSave, ref }: {
           </label>
           {invalidHex && <span id="hex-error" role="status">Use o formato #RRGGBB.</span>}
         </div>
-        <label className="eraser-size">
-          <span>Tamanho da borracha</span>
-          <select id="eraser-size" value={eraserSize} onChange={event => setEraserSize(Number(event.target.value))}>
-            {eraserSizes.map(size => <option key={size} value={size}>{size}×{size}</option>)}
-          </select>
-        </label>
         <div className="zoom" role="group" aria-label="Zoom da grade">
-          <button type="button" aria-label="Diminuir zoom" disabled={zoom === 1}
+          <button type="button" className="secondary" aria-label="Diminuir zoom" disabled={zoom === 1}
             onClick={() => changeZoom(zoom - 0.5)}>−</button>
           <output aria-label="Zoom atual">{zoom * 100}%</output>
-          <button type="button" aria-label="Aumentar zoom" disabled={zoom === 4}
+          <button type="button" className="secondary" aria-label="Aumentar zoom" disabled={zoom === 4}
             onClick={() => changeZoom(zoom + 0.5)}>+</button>
-          <button type="button" disabled={zoom === 1} onClick={() => changeZoom(1)}>Ajustar à tela</button>
+          <button type="button" className="secondary" disabled={zoom === 1} onClick={() => changeZoom(1)}>Ajustar à tela</button>
         </div>
-        <button type="button" className="secondary resize-control"
-          onClick={() => { finishEdits(); setResizing(true) }}>Redimensionar</button>
+        <div className="grid-tools">
+          <button type="button" className="secondary resize-control"
+            onClick={() => { finishEdits(); setResizing(true) }}>Redimensionar</button>
+        </div>
       </div>
       <div className="editor-workarea">
         <div className="grid-area" ref={viewport} role="region" tabIndex={0} aria-label="Área da grade">
@@ -507,7 +509,7 @@ function Editor({ project, onSave, ref }: {
         <section className="layer-panel" aria-labelledby="layers-title">
           <div className="layer-header">
             <h2 id="layers-title">Camadas</h2>
-            <button type="button" onClick={addLayer}>Nova camada</button>
+            <button type="button" className="secondary" onClick={addLayer}>Nova camada</button>
           </div>
           <ol className="layer-list" reversed aria-label="Ordem das camadas, do topo à base">
             {layers.map((layer, index) => ({ layer, index })).reverse().map(({ layer, index }) => (
