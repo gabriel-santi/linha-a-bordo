@@ -6,6 +6,8 @@ Editor de bordado em ponto cruz. O navegador salva o bordado automaticamente.
 2. Na raiz do repositório, execute `npm ci`.
 3. Execute `npm run dev` e abra no navegador a URL exibida pelo Vite.
 
+A versão aparece no rodapé, à direita (por exemplo, `v1.2.0`), e vem do campo `version` do `package.json`; ela é aumentada manualmente no PR de release dev → main, junto com a tag correspondente (`v1.2.0`).
+
 ## Camadas e histórico
 
 - Cada bordado começa com uma camada vazia. **Nova camada** acrescenta uma camada no topo e a seleciona. A lista mostra a ordem do topo à base. Selecione uma camada para pintar ou apagar nela, ou use as setas **Subir camada** e **Descer camada** para alterar a ordem. Os botões só com ícone mostram o nome ao passar o mouse ou ao receber o foco pelo teclado.
