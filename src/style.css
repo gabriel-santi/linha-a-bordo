@@ -25,7 +25,18 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; }
-.app { min-height: 100dvh; }
+/* Header, scrolling content and footer always fit the viewport together. */
+.app { display: flex; flex-direction: column; height: 100dvh; }
+header, .app-footer { flex: none; }
+.app-body { flex: 1 1 0; min-height: 0; overflow: auto; }
+/* Loose version text: no fill or border of its own. */
+.app-footer {
+  padding: 4px 20px;
+  color: var(--disabled-text);
+  font-size: 12px;
+  line-height: 16px;
+  text-align: right;
+}
 /* Three columns: equal side tracks keep the title on the page's center line; each side
    never shrinks below its content, so a long title truncates instead of overlapping. */
 header {
@@ -66,14 +77,14 @@ header h1 {
   text-overflow: ellipsis;
 }
 .editor, .start {
-  min-height: calc(100dvh - 64px);
+  min-height: 100%;
   display: grid;
   padding: 20px;
 }
 .start { place-items: center; }
 .workspace {
   display: grid;
-  height: calc(100dvh - 64px);
+  height: 100%;
   min-height: 300px;
   grid-template: minmax(0, 1fr) auto / minmax(0, 1fr);
   padding-bottom: 20px;
