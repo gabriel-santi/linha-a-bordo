@@ -1,4 +1,7 @@
 /// <reference types="vite/client" />
+
+// Injected by vite.config.ts from package.json.
+declare const __APP_VERSION__: string
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode, type Ref } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ArrowDown, ArrowUp, Download, Eraser, ImagePlus, LayersPlus, PenLine, Plus, Scaling, Shrink, Trash2, ZoomIn, ZoomOut, type LucideIcon } from 'lucide-react'
@@ -1008,6 +1011,8 @@ function App() {
           </span>)}
         </div>
       </header>
+      {/* Header and footer stay put; only this area scrolls when its content is taller than the viewport. */}
+      <div className="app-body">
       {project ? (
         <div className="workspace">
           <Editor ref={editor} key={project.number} project={project} onSave={save} />
@@ -1027,6 +1032,8 @@ function App() {
       ) : db ? (
         <main className="start"><ProjectForm mode="create" busy={busy} onSubmit={create} /></main>
       ) : !error && <main className="start" role="status">Abrindo bordado…</main>}
+      </div>
+      <footer className="app-footer">v{__APP_VERSION__}</footer>
       {dialog && project && <ProjectDialog mode={dialog} name={project.name} busy={busy}
         error={error} onSubmit={dialog === 'rename' ? rename : create} onCancel={closeDialog} />}
     </div>
